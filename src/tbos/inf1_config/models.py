@@ -15,22 +15,14 @@ from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, String, Uuid, 
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from tbos.common import ImmutableRecordError, forbid_mutation
 from tbos.db import Base
 from tbos.inf1_config.taxonomy import ModelLifecycleStatus, ValidationStatus
 
+__all__ = ["ImmutableRecordError", "ConfigVersion", "ModelRegistryEntry", "ModelLifecycleEvent"]
+
 # JSON on SQLite (tests), JSONB on PostgreSQL (production) — same logical type.
 _JSONVariant = JSON().with_variant(JSONB(), "postgresql")
-
-
-class ImmutableRecordError(RuntimeError):
-    """Raised when code attempts to UPDATE or DELETE an append-only row."""
-
-
-def _forbid_mutation(mapper: object, connection: object, target: object) -> None:
-    raise ImmutableRecordError(
-        f"{type(target).__name__} is append-only; UPDATE/DELETE is not permitted. "
-        "Publish a new version instead."
-    )
 
 
 class ConfigVersion(Base):
@@ -49,8 +41,8 @@ class ConfigVersion(Base):
     bundle: Mapped[dict] = mapped_column(_JSONVariant)
 
 
-event.listen(ConfigVersion, "before_update", _forbid_mutation)
-event.listen(ConfigVersion, "before_delete", _forbid_mutation)
+event.listen(ConfigVersion, "before_update", forbid_mutation)
+event.listen(ConfigVersion, "before_delete", forbid_mutation)
 
 
 class ModelRegistryEntry(Base):
@@ -101,5 +93,5 @@ class ModelLifecycleEvent(Base):
     entry: Mapped[ModelRegistryEntry] = relationship(back_populates="lifecycle_events")
 
 
-event.listen(ModelLifecycleEvent, "before_update", _forbid_mutation)
-event.listen(ModelLifecycleEvent, "before_delete", _forbid_mutation)
+event.listen(ModelLifecycleEvent, "before_update", forbid_mutation)
+event.listen(ModelLifecycleEvent, "before_delete", forbid_mutation)
