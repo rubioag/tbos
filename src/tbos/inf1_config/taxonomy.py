@@ -103,6 +103,17 @@ class OutcomeResult(StrEnum):
     PUSH = "PUSH"
 
 
+class EventType(StrEnum):
+    """INF.2 event stream — the only six event types the Bet Ledger accepts."""
+
+    DECISION_RECORDED = "DECISION_RECORDED"
+    EXECUTION_RECORDED = "EXECUTION_RECORDED"
+    CANCELLATION_RECORDED = "CANCELLATION_RECORDED"
+    CLV_RECORDED = "CLV_RECORDED"
+    OUTCOME_RECORDED = "OUTCOME_RECORDED"
+    CORRECTION_RECORDED = "CORRECTION_RECORDED"
+
+
 class Surface(StrEnum):
     CLAY = "CLAY"
     HARD = "HARD"
