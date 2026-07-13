@@ -103,6 +103,43 @@ class OutcomeResult(StrEnum):
     PUSH = "PUSH"
 
 
+class DecisionQualityClassification(StrEnum):
+    """INF.3 §D — evaluated against info available AT DECISION TIME, never
+    with outcome hindsight folded back into what counted as a good call.
+    """
+
+    GOOD_DECISION_GOOD_OUTCOME = "GOOD_DECISION_GOOD_OUTCOME"
+    GOOD_DECISION_BAD_OUTCOME = "GOOD_DECISION_BAD_OUTCOME"
+    BAD_DECISION_GOOD_OUTCOME = "BAD_DECISION_GOOD_OUTCOME"
+    BAD_DECISION_BAD_OUTCOME = "BAD_DECISION_BAD_OUTCOME"
+    AMBIGUOUS = "AMBIGUOUS"
+
+
+class DecisionConfidenceTier(StrEnum):
+    """How strong the reasoning was, as assessed by CE.4 at decision time —
+    independent of and prior to knowing the outcome.
+    """
+
+    STRONG = "STRONG"
+    MARGINAL = "MARGINAL"
+    WEAK = "WEAK"
+
+
+class MistakeCategory(StrEnum):
+    MODEL_ERROR = "MODEL_ERROR"
+    EXECUTION_ERROR = "EXECUTION_ERROR"
+    BEHAVIORAL_ERROR = "BEHAVIORAL_ERROR"
+    MARKET_MISREAD = "MARKET_MISREAD"
+    UNKNOWN_UNKNOWN = "UNKNOWN_UNKNOWN"
+
+
+class FindingStatus(StrEnum):
+    CANDIDATE = "CANDIDATE"
+    UNDER_REVIEW = "UNDER_REVIEW"
+    PROMOTED = "PROMOTED"
+    REJECTED = "REJECTED"
+
+
 class EventType(StrEnum):
     """INF.2 event stream — the only six event types the Bet Ledger accepts."""
 
