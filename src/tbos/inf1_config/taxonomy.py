@@ -140,6 +140,12 @@ class FindingStatus(StrEnum):
     REJECTED = "REJECTED"
 
 
+class PersistenceClass(StrEnum):
+    SECONDS = "SECONDS"
+    MINUTES = "MINUTES"
+    HOURS = "HOURS"
+
+
 class ExecutionMode(StrEnum):
     """Tags every ModelOutput with how it was produced. The Ensemble
     Aggregator's ingestion contract accepts LIVE only — SHADOW/BACKTEST
