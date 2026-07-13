@@ -26,6 +26,11 @@ class ModelInputBundle(BaseModel):
     player_a_id: str
     player_b_id: str
 
+    # The evaluation instant this bundle represents. Models must use this,
+    # never datetime.now(), for anything timestamp-related in their output
+    # (Common Model Contract §10 — no clock reads beyond what's in the bundle).
+    as_of: datetime
+
     player_a_profile: PlayerProfile | None = None
     player_a_state: PlayerState | None = None
     player_b_profile: PlayerProfile | None = None
@@ -50,7 +55,7 @@ def load_input_bundle(
 ) -> ModelInputBundle:
     ids = {"player_a_id": player_a_id, "player_b_id": player_b_id, "match_id": match_id}
     bundle_kwargs: dict[str, object] = {
-        "match_id": match_id, "player_a_id": player_a_id, "player_b_id": player_b_id
+        "match_id": match_id, "player_a_id": player_a_id, "player_b_id": player_b_id, "as_of": as_of
     }
     snapshot_refs: dict[str, uuid.UUID] = {}
 

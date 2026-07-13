@@ -38,7 +38,7 @@ class _ImpureToyModel(Model):
 
 
 def _bundle() -> ModelInputBundle:
-    return ModelInputBundle(match_id="match_1", player_a_id="p1", player_b_id="p2")
+    return ModelInputBundle(match_id="match_1", player_a_id="p1", player_b_id="p2", as_of=NOW)
 
 
 def test_pure_model_passes_determinism_check() -> None:

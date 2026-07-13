@@ -140,7 +140,7 @@ def test_check_required_fields_stale_but_present_still_satisfies() -> None:
     """
     from tbos.ce2_prediction.input_bundle import ModelInputBundle
 
-    bundle = ModelInputBundle(match_id="m", player_a_id="p1", player_b_id="p2", player_a_profile=_profile())
+    bundle = ModelInputBundle(match_id="m", player_a_id="p1", player_b_id="p2", as_of=datetime.now(timezone.utc), player_a_profile=_profile())
     ok, missing = check_required_fields(bundle, ["player_a_profile.break_points_converted_pct_by_surface"])
     assert ok is True
 
@@ -148,7 +148,7 @@ def test_check_required_fields_stale_but_present_still_satisfies() -> None:
 def test_check_required_fields_reports_all_missing_paths() -> None:
     from tbos.ce2_prediction.input_bundle import ModelInputBundle
 
-    bundle = ModelInputBundle(match_id="m", player_a_id="p1", player_b_id="p2")
+    bundle = ModelInputBundle(match_id="m", player_a_id="p1", player_b_id="p2", as_of=datetime.now(timezone.utc))
     ok, missing = check_required_fields(
         bundle, ["player_a_profile.first_serve_pct_by_surface", "player_b_profile.hold_rate_by_surface"]
     )
