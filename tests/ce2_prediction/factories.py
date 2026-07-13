@@ -53,11 +53,20 @@ def make_profile(
     )
 
 
-def make_state(player_id: str = "p1") -> PlayerState:
+def make_state(
+    player_id: str = "p1",
+    *,
+    injury_flags: list[dict] | None = None,
+    matches_last_14d: float = 3,
+    sets_played_last_14d: float = 7,
+    deviation_from_baseline: float = 0.0,
+    days_since_last_match: float = 4,
+) -> PlayerState:
     return PlayerState(
-        player_id=env(player_id), injury_flags=env([]), matches_last_14d=env(3),
-        sets_played_last_14d=env(7), travel_distance_km=env(0.0),
-        timezone_shift_hours=env(0.0), deviation_from_baseline=env(0.0), days_since_last_match=env(4),
+        player_id=env(player_id), injury_flags=env(injury_flags if injury_flags is not None else []),
+        matches_last_14d=env(matches_last_14d), sets_played_last_14d=env(sets_played_last_14d),
+        travel_distance_km=env(0.0), timezone_shift_hours=env(0.0),
+        deviation_from_baseline=env(deviation_from_baseline), days_since_last_match=env(days_since_last_match),
     )
 
 
@@ -74,12 +83,21 @@ def make_bundle(
     *,
     player_a_profile: PlayerProfile | None = None,
     player_b_profile: PlayerProfile | None = None,
+    player_a_state: PlayerState | None = None,
+    player_b_state: PlayerState | None = None,
     match_context: MatchContext | None = None,
+    include_states: bool = False,
 ) -> ModelInputBundle:
+    if include_states:
+        player_a_state = player_a_state if player_a_state is not None else make_state("p1")
+        player_b_state = player_b_state if player_b_state is not None else make_state("p2")
+
     return ModelInputBundle(
         match_id="match_1", player_a_id="p1", player_b_id="p2",
         as_of=datetime(2026, 1, 1, tzinfo=timezone.utc),
         player_a_profile=player_a_profile if player_a_profile is not None else make_profile("p1"),
         player_b_profile=player_b_profile if player_b_profile is not None else make_profile("p2"),
+        player_a_state=player_a_state,
+        player_b_state=player_b_state,
         match_context=match_context if match_context is not None else make_match_context(),
     )
