@@ -140,6 +140,18 @@ class FindingStatus(StrEnum):
     REJECTED = "REJECTED"
 
 
+class ExecutionMode(StrEnum):
+    """Tags every ModelOutput with how it was produced. The Ensemble
+    Aggregator's ingestion contract accepts LIVE only — SHADOW/BACKTEST
+    outputs are structurally ineligible for real combination, not merely
+    excluded by convention (CE.2.8 Shadow Execution spec).
+    """
+
+    LIVE = "LIVE"
+    SHADOW = "SHADOW"
+    BACKTEST = "BACKTEST"
+
+
 class EventType(StrEnum):
     """INF.2 event stream — the only six event types the Bet Ledger accepts."""
 

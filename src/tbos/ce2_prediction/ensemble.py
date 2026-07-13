@@ -21,6 +21,7 @@ from pydantic import BaseModel
 
 from tbos.ce2_prediction.contract import ModelOutput
 from tbos.ce2_prediction.domain_mapping import UnknownDomainError, map_to_log_odds, sigmoid
+from tbos.inf1_config.taxonomy import ExecutionMode
 
 ENSEMBLE_VERSION = "1.0.0"
 
@@ -63,6 +64,16 @@ def combine_models(match_id: str, outputs: list[ModelOutput]) -> EnsembleOutput:
     contributions: list[tuple[str, str, float, float, float, float]] = []
 
     for out in outputs:
+        if out.execution_mode != ExecutionMode.LIVE:
+            # Structural rejection, not a convention: a SHADOW/BACKTEST
+            # output is schema-ineligible for real combination, per CE.2.8.
+            abstained.append(
+                AbstainedModel(
+                    model_id=out.model_id, domain=out.domain,
+                    reason=f"execution_mode={out.execution_mode.value} is not eligible for live combination",
+                )
+            )
+            continue
         if out.abstained:
             abstained.append(
                 AbstainedModel(model_id=out.model_id, domain=out.domain, reason=out.abstain_reason or "unspecified")

@@ -21,6 +21,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from tbos.inf1_config.taxonomy import ExecutionMode
+
 
 class ContributionLineageEntry(BaseModel):
     field_used: str
@@ -43,10 +45,17 @@ class ModelOutput(BaseModel):
     contribution_lineage: list[ContributionLineageEntry] = Field(default_factory=list)
     market_data_used: bool = False
 
+    # Defaults to LIVE so every existing Model/test from CE.2.1-CE.2.4 keeps
+    # working unchanged — Shadow/Backtest execution explicitly overrides it.
+    execution_mode: ExecutionMode = ExecutionMode.LIVE
+
     computed_at: datetime
 
 
-def abstain(*, domain: str, model_id: str, model_version: str, reason: str, computed_at: datetime) -> ModelOutput:
+def abstain(
+    *, domain: str, model_id: str, model_version: str, reason: str, computed_at: datetime,
+    execution_mode: ExecutionMode = ExecutionMode.LIVE,
+) -> ModelOutput:
     """The only sanctioned way to produce a ModelOutput when required
     evidence is unusable — never fabricate an estimate instead (§3, §9).
     """
@@ -59,5 +68,6 @@ def abstain(*, domain: str, model_id: str, model_version: str, reason: str, comp
         own_evidence_quality=0.0,
         abstained=True,
         abstain_reason=reason,
+        execution_mode=execution_mode,
         computed_at=computed_at,
     )
