@@ -57,6 +57,7 @@ def build_edge_description(
         instrument_type=instrument_type,
         book_id=book_id,
         probability_used=prediction.probability_player_a,
+        probability_uncertainty=prediction.uncertainty,
         fair_odds=fair_odds,
         offered_odds=offered_odds,
         ev_distribution=ev_distribution,

@@ -25,6 +25,7 @@ class EdgeDescription(BaseModel):
     book_id: str
 
     probability_used: float
+    probability_uncertainty: float
     fair_odds: float
     offered_odds: float
 
