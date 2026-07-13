@@ -147,6 +147,19 @@ class CancellationReason(StrEnum):
     BOOKMAKER_UNAVAILABLE = "BOOKMAKER_UNAVAILABLE"
 
 
+class PaperTradingStatus(StrEnum):
+    ACTIVE = "ACTIVE"
+    PASSED = "PASSED"
+    FAILED = "FAILED"
+    ABORTED = "ABORTED"
+
+
+class ApprovalDecision(StrEnum):
+    APPROVE_LIVE = "APPROVE_LIVE"
+    REJECT = "REJECT"
+    EXTEND_RUN = "EXTEND_RUN"
+
+
 class MonitorStatus(StrEnum):
     PENDING = "PENDING"
     SATISFIED = "SATISFIED"
