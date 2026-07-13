@@ -37,6 +37,7 @@ def make_profile(
     return_points_won: dict[str, float] | None = None,
     break_conversion: dict[str, float] | None = None,
     first_serve: dict[str, float] | None = None,
+    h2h_records: list[dict] | None = None,
 ) -> PlayerProfile:
     return PlayerProfile(
         player_id=env(player_id),
@@ -49,7 +50,7 @@ def make_profile(
         break_points_converted_pct_by_surface=env(break_conversion or {"HARD": 0.38}),
         style_tags=env(["baseline"]),
         career_stage=env("PEAK"),
-        h2h_records=env([]),
+        h2h_records=env(h2h_records if h2h_records is not None else []),
     )
 
 
