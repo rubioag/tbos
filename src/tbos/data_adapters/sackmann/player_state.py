@@ -58,7 +58,10 @@ def compute_deviation_from_baseline(
     win/loss streak (per the "momentum" correction already locked at
     Form/Fatigue Model design time).
     """
-    from tbos.data_adapters.sackmann.aggregator import get_stat, pair_prefixes  # local import, avoids a cycle at module load
+    from tbos.data_adapters.sackmann.aggregator import (  # local import, avoids a cycle at module load
+        get_stat,
+        pair_prefixes,
+    )
 
     played = sorted(
         (m for m in _player_matches(matches, player_id) if m.tourney_date <= as_of),

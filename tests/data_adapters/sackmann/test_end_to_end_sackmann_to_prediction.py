@@ -5,7 +5,7 @@ CE.2 prediction with only The Odds API as the mandatory online dependency.
 """
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -16,7 +16,6 @@ from tbos.data_adapters import ingestion
 from tbos.data_adapters.sackmann.adapter import SackmannStatsAdapter
 from tbos.inf1_config.schemas import DataIngestionConfig, EnsembleConfig
 from tbos.inf1_config.taxonomy import ConfidenceFlag
-
 from tests.ce2_prediction.factories import make_bundle, make_match_context
 from tests.data_adapters.sackmann.fixtures import all_matches
 
@@ -24,7 +23,7 @@ CONFIG_VERSION_ID = uuid.uuid4()
 
 
 def test_sackmann_derived_stats_flow_through_to_a_real_prediction(session: Session) -> None:
-    as_of = datetime.now(timezone.utc) + timedelta(minutes=1)
+    as_of = datetime.now(UTC) + timedelta(minutes=1)
     adapter = SackmannStatsAdapter(all_matches())
     config = DataIngestionConfig()
 

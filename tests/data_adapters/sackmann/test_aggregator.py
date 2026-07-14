@@ -17,9 +17,15 @@ from datetime import date
 
 import pytest
 
-from tbos.data_adapters.sackmann.aggregator import accumulate_surface_totals, compute_serve_return_by_surface
-
-from tests.data_adapters.sackmann.fixtures import all_matches, match1_p1_beats_p2_hard, match2_p1_loses_to_p3_hard, match3_p1_beats_p2_clay
+from tbos.data_adapters.sackmann.aggregator import (
+    accumulate_surface_totals,
+    compute_serve_return_by_surface,
+)
+from tests.data_adapters.sackmann.fixtures import (
+    all_matches,
+    match1_p1_beats_p2_hard,
+    match2_p1_loses_to_p3_hard,
+)
 
 
 def test_hard_surface_stats_match_hand_computed_values() -> None:

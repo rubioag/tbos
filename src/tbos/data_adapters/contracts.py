@@ -82,6 +82,12 @@ class RawOddsQuote(BaseModel):
     match_id: str
     instrument_type: InstrumentType
     book_id: str
+    # Which side of the market `odds` prices. Required (no default): a
+    # two-outcome market (e.g. moneyline) always yields two quotes per
+    # book, and silently defaulting this would let them collide under
+    # the same entity_id in ingestion. "player_a"/"player_b" are the
+    # only values in v1 — matches the two-competitor tennis match model.
+    selection: str
     odds: float
     captured_at: datetime
     metadata: SourceMetadata

@@ -18,7 +18,7 @@ the moment of the call.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from tbos.data_adapters.contracts import (
     EntityNotFoundError,
@@ -76,7 +76,7 @@ class SackmannStatsAdapter(StatsSourceAdapter):
         )
 
     def fetch_player_profile(self, player_id: str) -> RawPlayerStatsRecord:
-        as_of = datetime.now(timezone.utc)
+        as_of = datetime.now(UTC)
         as_of_date = as_of.date()
 
         by_surface = compute_serve_return_by_surface(self._matches, player_id, as_of=as_of_date)
@@ -120,7 +120,7 @@ class SackmannStatsAdapter(StatsSourceAdapter):
         )
 
     def fetch_player_state(self, player_id: str) -> RawPlayerStateRecord:
-        as_of = datetime.now(timezone.utc)
+        as_of = datetime.now(UTC)
         as_of_date = as_of.date()
 
         if _most_recent_match(self._matches, player_id, as_of=as_of_date) is None:

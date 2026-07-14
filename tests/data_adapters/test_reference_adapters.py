@@ -1,10 +1,9 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from tbos.data_adapters.contracts import (
     EntityNotFoundError,
-    RawMatchContextRecord,
     RawOddsQuote,
     RawPlayerStatsRecord,
     SourceMetadata,
@@ -13,7 +12,7 @@ from tbos.data_adapters.contracts import (
 from tbos.data_adapters.reference_adapters import InMemoryOddsAdapter, InMemoryStatsAdapter
 from tbos.inf1_config.taxonomy import InstrumentType
 
-NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
+NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _metadata() -> SourceMetadata:
@@ -49,7 +48,7 @@ def test_stats_adapter_unavailable_raises_source_unavailable() -> None:
 
 
 def test_odds_adapter_returns_matching_quotes() -> None:
-    quote = RawOddsQuote(match_id="m1", instrument_type=InstrumentType.MONEYLINE, book_id="book_a", odds=1.9, captured_at=NOW, metadata=_metadata())
+    quote = RawOddsQuote(match_id="m1", instrument_type=InstrumentType.MONEYLINE, book_id="book_a", selection="player_a", odds=1.9, captured_at=NOW, metadata=_metadata())
     adapter = InMemoryOddsAdapter(quotes=[quote])
     result = adapter.fetch_odds("m1", InstrumentType.MONEYLINE)
     assert len(result) == 1
@@ -63,7 +62,7 @@ def test_odds_adapter_unknown_match_raises() -> None:
 
 
 def test_odds_adapter_filters_by_instrument_type() -> None:
-    quote = RawOddsQuote(match_id="m1", instrument_type=InstrumentType.HANDICAP, book_id="book_a", odds=1.9, captured_at=NOW, metadata=_metadata())
+    quote = RawOddsQuote(match_id="m1", instrument_type=InstrumentType.HANDICAP, book_id="book_a", selection="player_a", odds=1.9, captured_at=NOW, metadata=_metadata())
     adapter = InMemoryOddsAdapter(quotes=[quote])
     with pytest.raises(EntityNotFoundError):
         adapter.fetch_odds("m1", InstrumentType.MONEYLINE)

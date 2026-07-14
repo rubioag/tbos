@@ -8,7 +8,6 @@ from tbos.data_adapters.sackmann.player_state import (
     count_sets_in_score,
     detect_injury_flags,
 )
-
 from tests.data_adapters.sackmann.fixtures import all_matches
 
 

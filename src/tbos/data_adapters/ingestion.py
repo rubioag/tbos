@@ -20,7 +20,7 @@ from tbos.ce1_data import repository as ce1_repository
 from tbos.ce1_data.envelope import FieldEnvelope
 from tbos.ce1_data.models import Snapshot
 from tbos.ce1_data.pipeline import RawFieldCandidate, build_field_envelope
-from tbos.ce1_data.schemas import MatchContext, MarketSnapshot, PlayerProfile, PlayerState
+from tbos.ce1_data.schemas import MarketSnapshot, MatchContext, PlayerProfile, PlayerState
 from tbos.data_adapters.contracts import (
     EntityNotFoundError,
     OddsSourceAdapter,
@@ -31,6 +31,7 @@ from tbos.data_adapters.contracts import (
 )
 from tbos.inf1_config.schemas import DataIngestionConfig
 from tbos.inf1_config.taxonomy import InstrumentType
+
 
 def _always_valid(_: object) -> bool:
     return True
@@ -167,7 +168,7 @@ def ingest_odds(
             captured_at=_field(quote.captured_at, m, freshness_threshold_seconds=fresh, now=now),
             is_closing_snapshot=_field(False, m, freshness_threshold_seconds=fresh, now=now),
         )
-        entity_id = f"{match_id}:{instrument_type.value}:{quote.book_id}"
+        entity_id = f"{match_id}:{instrument_type.value}:{quote.book_id}:{quote.selection}"
         snapshots.append(
             ce1_repository.publish_snapshot(
                 session, entity_type="MarketSnapshot", entity_id=entity_id, fields=fields, config_version_id=config_version_id,

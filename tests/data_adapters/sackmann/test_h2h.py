@@ -1,7 +1,6 @@
 from datetime import date
 
 from tbos.data_adapters.sackmann.h2h import compute_h2h_records
-
 from tests.data_adapters.sackmann.fixtures import all_matches
 
 

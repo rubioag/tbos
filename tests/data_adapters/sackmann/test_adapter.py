@@ -2,7 +2,6 @@ import pytest
 
 from tbos.data_adapters.contracts import EntityNotFoundError
 from tbos.data_adapters.sackmann.adapter import SackmannStatsAdapter
-
 from tests.data_adapters.sackmann.fixtures import all_matches
 
 

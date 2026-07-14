@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
@@ -16,7 +16,7 @@ from tbos.data_adapters.reference_adapters import InMemoryOddsAdapter, InMemoryS
 from tbos.inf1_config.schemas import DataIngestionConfig
 from tbos.inf1_config.taxonomy import InstrumentType
 
-NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
+NOW = datetime(2026, 1, 1, tzinfo=UTC)
 CONFIG = DataIngestionConfig()
 CONFIG_VERSION_ID = uuid.uuid4()
 
@@ -101,8 +101,8 @@ def test_ingest_match_context_publishes_snapshot_with_surface_enum_coercion(sess
 
 def test_ingest_odds_publishes_one_snapshot_per_quote(session: Session) -> None:
     quotes = [
-        RawOddsQuote(match_id="m1", instrument_type=InstrumentType.MONEYLINE, book_id="book_a", odds=1.9, captured_at=NOW, metadata=_metadata()),
-        RawOddsQuote(match_id="m1", instrument_type=InstrumentType.MONEYLINE, book_id="book_b", odds=2.0, captured_at=NOW, metadata=_metadata()),
+        RawOddsQuote(match_id="m1", instrument_type=InstrumentType.MONEYLINE, book_id="book_a", selection="player_a", odds=1.9, captured_at=NOW, metadata=_metadata()),
+        RawOddsQuote(match_id="m1", instrument_type=InstrumentType.MONEYLINE, book_id="book_a", selection="player_b", odds=2.0, captured_at=NOW, metadata=_metadata()),
     ]
     adapter = InMemoryOddsAdapter(quotes=quotes)
     snapshots = ingestion.ingest_odds(session, adapter, "m1", InstrumentType.MONEYLINE, config=CONFIG, config_version_id=CONFIG_VERSION_ID, now=NOW)
@@ -117,7 +117,7 @@ def test_ingest_odds_no_quotes_returns_empty_list(session: Session) -> None:
 
 
 def test_ingest_odds_computes_implied_probability(session: Session) -> None:
-    quotes = [RawOddsQuote(match_id="m1", instrument_type=InstrumentType.MONEYLINE, book_id="book_a", odds=2.0, captured_at=NOW, metadata=_metadata())]
+    quotes = [RawOddsQuote(match_id="m1", instrument_type=InstrumentType.MONEYLINE, book_id="book_a", selection="player_a", odds=2.0, captured_at=NOW, metadata=_metadata())]
     adapter = InMemoryOddsAdapter(quotes=quotes)
     [snapshot] = ingestion.ingest_odds(session, adapter, "m1", InstrumentType.MONEYLINE, config=CONFIG, config_version_id=CONFIG_VERSION_ID, now=NOW)
     session.commit()

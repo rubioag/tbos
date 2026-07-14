@@ -13,8 +13,8 @@ from tbos.data_adapters.contracts import (
     RawOddsQuote,
     RawPlayerStateRecord,
     RawPlayerStatsRecord,
-    StatsSourceAdapter,
     SourceUnavailableError,
+    StatsSourceAdapter,
 )
 from tbos.inf1_config.taxonomy import InstrumentType
 

@@ -4,19 +4,22 @@ prediction. This is the real point of building adapters at all.
 """
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
 from tbos.ce2_prediction.prediction_engine import run_prediction
 from tbos.ce2_prediction.registry_bootstrap import bootstrap_and_activate_all
 from tbos.data_adapters import ingestion
-from tbos.data_adapters.contracts import RawMatchContextRecord, RawPlayerStateRecord, RawPlayerStatsRecord, SourceMetadata
+from tbos.data_adapters.contracts import (
+    RawMatchContextRecord,
+    RawPlayerStateRecord,
+    RawPlayerStatsRecord,
+    SourceMetadata,
+)
 from tbos.data_adapters.reference_adapters import InMemoryStatsAdapter
-
 from tbos.inf1_config.schemas import DataIngestionConfig, EnsembleConfig
 from tbos.inf1_config.taxonomy import ConfidenceFlag
-
 from tests.ce2_prediction.factories import make_bundle
 
 CONFIG_VERSION_ID = uuid.uuid4()
@@ -53,7 +56,7 @@ def _context(match_id: str, now: datetime) -> RawMatchContextRecord:
 
 
 def test_reference_adapter_data_flows_through_to_a_real_prediction(session: Session) -> None:
-    as_of = datetime.now(timezone.utc) + timedelta(minutes=1)
+    as_of = datetime.now(UTC) + timedelta(minutes=1)
 
     stats_adapter = InMemoryStatsAdapter(
         profiles={
@@ -90,7 +93,7 @@ def test_missing_adapter_data_yields_abstained_prediction_not_a_crash(session: S
     """No data ingested at all — the system must abstain honestly, never
     error out or fabricate a prediction from nothing.
     """
-    as_of = datetime.now(timezone.utc) + timedelta(minutes=1)
+    as_of = datetime.now(UTC) + timedelta(minutes=1)
     representative_bundle = make_bundle(include_states=True)
     bootstrap_and_activate_all(session, representative_bundle, reviewer_id="alice")
 
