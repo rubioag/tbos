@@ -15,6 +15,7 @@ import httpx
 
 from tbos.data_adapters.contracts import EntityNotFoundError, SourceUnavailableError
 from tbos.data_adapters.http.retry import retry_with_backoff
+from tbos.settings import settings
 
 logger = logging.getLogger("tbos.data_adapters.odds_api")
 
@@ -22,6 +23,13 @@ DEFAULT_BASE_URL = "https://api.the-odds-api.com/v4"
 DEFAULT_TIMEOUT_SECONDS = 10.0
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_BACKOFF_BASE_SECONDS = 0.5
+
+
+class OddsApiKeyMissingError(RuntimeError):
+    """TBOS_ODDS_API_KEY is not set. Raised only by from_env() — a clear,
+    named failure instead of a generic ValueError or a confusing
+    traceback from deep inside the HTTP layer.
+    """
 
 
 class _RetryableHttpError(RuntimeError):
@@ -51,6 +59,31 @@ class OddsApiClient:
         self._max_retries = max_retries
         self._backoff_base_seconds = backoff_base_seconds
         self._client = httpx.Client(timeout=timeout_seconds, transport=transport)
+
+    @classmethod
+    def from_env(
+        cls,
+        *,
+        base_url: str = DEFAULT_BASE_URL,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        backoff_base_seconds: float = DEFAULT_BACKOFF_BASE_SECONDS,
+        transport: httpx.BaseTransport | None = None,
+    ) -> OddsApiClient:
+        """Construct from TBOS_ODDS_API_KEY. Fails fast with a named,
+        actionable error if it isn't set — never a bare ValueError or a
+        traceback from inside httpx.
+        """
+        if not settings.odds_api_key:
+            raise OddsApiKeyMissingError(
+                "TBOS_ODDS_API_KEY is not set. The Odds API adapter cannot run without it. "
+                "Set it as an environment variable, or in a local .env file (already "
+                "gitignored) before running. Never hardcode it in source."
+            )
+        return cls(
+            api_key=settings.odds_api_key, base_url=base_url, timeout_seconds=timeout_seconds,
+            max_retries=max_retries, backoff_base_seconds=backoff_base_seconds, transport=transport,
+        )
 
     def close(self) -> None:
         self._client.close()

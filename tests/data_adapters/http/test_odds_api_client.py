@@ -6,7 +6,8 @@ import httpx
 import pytest
 
 from tbos.data_adapters.contracts import EntityNotFoundError, SourceUnavailableError
-from tbos.data_adapters.http.odds_api_client import OddsApiClient
+from tbos.data_adapters.http.odds_api_client import OddsApiClient, OddsApiKeyMissingError
+from tbos.settings import settings
 
 
 def _client(handler, **kwargs) -> OddsApiClient:
@@ -17,6 +18,25 @@ def _client(handler, **kwargs) -> OddsApiClient:
 def test_empty_api_key_rejected() -> None:
     with pytest.raises(ValueError):
         OddsApiClient(api_key="")
+
+
+def test_from_env_missing_key_raises_named_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "odds_api_key", None)
+    with pytest.raises(OddsApiKeyMissingError, match="TBOS_ODDS_API_KEY"):
+        OddsApiClient.from_env()
+
+
+def test_from_env_empty_string_key_raises_named_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "odds_api_key", "")
+    with pytest.raises(OddsApiKeyMissingError, match="TBOS_ODDS_API_KEY"):
+        OddsApiClient.from_env()
+
+
+def test_from_env_present_key_constructs_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "odds_api_key", "real_key_from_env")
+    client = OddsApiClient.from_env()
+    assert client is not None
+    client.close()
 
 
 def test_successful_response_returns_json() -> None:
