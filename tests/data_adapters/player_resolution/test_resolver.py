@@ -6,6 +6,7 @@ from tbos.data_adapters.contracts import EntityNotFoundError
 from tbos.data_adapters.player_resolution.resolver import PlayerNameResolver
 from tbos.data_adapters.player_resolution.store import PlayerNameMappingStore
 from tests.data_adapters.player_resolution.fixtures import (
+    ambiguous_initial_matches,
     ambiguous_name_matches,
     real_player_matches,
 )
@@ -146,3 +147,40 @@ def test_different_sources_kept_independent(tmp_path) -> None:
     assert store.get("some_other_provider", "Novak Djokovic") is None
     resolver_b.resolve("Novak Djokovic", now=NOW)
     assert store.get("some_other_provider", "Novak Djokovic") is not None
+
+
+@pytest.mark.parametrize(
+    "abbreviated_name,expected_id",
+    [
+        ("Tiafoe F.", "126207"),
+        ("Djokovic N.", "104925"),
+        ("Swiatek I.", "216347"),
+        ("Gauff C.", "221103"),
+        ("Auger-Aliassime F.", "200000"),  # tennis-data.co.uk hyphenates this one
+        ("Van De Zandschulp B.", "122298"),
+    ],
+)
+def test_abbreviated_surname_resolves_real_tennis_data_format(tmp_path, abbreviated_name, expected_id) -> None:
+    resolver, store = _resolver(tmp_path)
+    player_id = resolver.resolve(abbreviated_name, now=NOW)
+    assert player_id == expected_id
+    record = store.get("the_odds_api", abbreviated_name)
+    assert record.method == "abbreviated_surname"
+    assert record.confidence == 0.92
+
+
+def test_abbreviated_surname_ambiguous_initial_abstains(tmp_path) -> None:
+    """Two different players, both surnamed Djokovic, both first names
+    starting with 'N' — "Djokovic N." cannot be disambiguated from
+    surname+initial alone and must abstain, never guess one.
+    """
+    resolver, store = _resolver(tmp_path, matches=ambiguous_initial_matches())
+    with pytest.raises(EntityNotFoundError, match="ambiguous"):
+        resolver.resolve("Djokovic N.", now=NOW)
+    assert store.get("the_odds_api", "Djokovic N.") is None
+
+
+def test_abbreviated_surname_unknown_player_abstains(tmp_path) -> None:
+    resolver, _ = _resolver(tmp_path)
+    with pytest.raises(EntityNotFoundError):
+        resolver.resolve("Nobody Z.", now=NOW)

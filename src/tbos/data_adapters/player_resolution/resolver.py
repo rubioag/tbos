@@ -9,7 +9,14 @@ Resolution tiers, in order:
    majority of real cases (accents, hyphens, punctuation, case).
 2. Reversed word order (handles "Last First" inputs) — confidence 0.95,
    only if it resolves to exactly one player_id.
-3. Fuzzy match (difflib ratio) — only accepted if the best candidate's
+3. Abbreviated surname ("Tiafoe F.", tennis-data.co.uk's format) —
+   confidence 0.92, only if exactly one indexed full name has a matching
+   surname (all tokens but the first) and a first-name initial. Ambiguity
+   here (e.g. two different indexed players named "* Djokovic" with first
+   names both starting "N") aborts resolution immediately rather than
+   falling through to fuzzy matching, which could otherwise silently
+   pick one.
+4. Fuzzy match (difflib ratio) — only accepted if the best candidate's
    ratio clears `fuzzy_threshold` AND resolves to exactly one player_id.
    Every fuzzy acceptance is recorded with its actual confidence value;
    there is no path that accepts a fuzzy match without logging it.
@@ -84,6 +91,15 @@ class PlayerNameResolver:
             )
             return player_id
 
+        abbreviated_candidate = self._try_abbreviated_surname(normalized)
+        if abbreviated_candidate is not None:
+            player_id = abbreviated_candidate
+            self._record(
+                source_name, normalized, player_id,
+                confidence=0.92, method="abbreviated_surname", now=now,
+            )
+            return player_id
+
         best_name, best_ratio, best_ids = self._best_fuzzy_candidate(normalized)
         if best_ratio >= self._fuzzy_threshold and best_ids is not None and len(best_ids) == 1:
             player_id = next(iter(best_ids))
@@ -107,6 +123,39 @@ class PlayerNameResolver:
         candidates = self._index.get(reversed_normalized)
         if candidates is not None and len(candidates) == 1:
             return next(iter(candidates))
+        return None
+
+    def _try_abbreviated_surname(self, normalized: str) -> str | None:
+        """Handles tennis-data.co.uk's "Surname I." convention. Splits
+        each indexed full name as (first_token, remaining_tokens) —
+        first_token is treated as the first name, everything after as
+        the surname (holds for every real example checked: multi-word
+        surnames like "auger aliassime" and "van de zandschulp" included).
+        """
+        tokens = normalized.split(" ")
+        if len(tokens) < 2:
+            return None
+        initial = tokens[-1]
+        if len(initial) != 1:
+            return None
+        surname = " ".join(tokens[:-1])
+
+        matched_ids: set[str] = set()
+        for full_name, ids in self._index.items():
+            full_tokens = full_name.split(" ")
+            if len(full_tokens) < 2:
+                continue
+            first_name, full_surname = full_tokens[0], " ".join(full_tokens[1:])
+            if full_surname == surname and first_name[:1] == initial:
+                matched_ids |= ids
+
+        if len(matched_ids) > 1:
+            raise EntityNotFoundError(
+                f"ambiguous abbreviated name (surname={surname!r}, initial={initial!r}): "
+                f"{len(matched_ids)} distinct player_ids match — abstaining, not guessing"
+            )
+        if len(matched_ids) == 1:
+            return next(iter(matched_ids))
         return None
 
     def _best_fuzzy_candidate(self, normalized: str) -> tuple[str | None, float, set[str] | None]:

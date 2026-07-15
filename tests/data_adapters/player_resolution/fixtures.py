@@ -33,6 +33,7 @@ def real_player_matches() -> list[MatchRow]:
         _match("104925", "Novak Djokovic", "207989", "Carlos Alcaraz"),
         _match("216347", "Iga Swiatek", "221103", "Coco Gauff"),
         _match("200000", "Felix Auger Aliassime", "122298", "Botic Van De Zandschulp"),
+        _match("126207", "Frances Tiafoe", "999999", "Filler Opponent"),
     ]
 
 
@@ -42,4 +43,14 @@ def ambiguous_name_matches() -> list[MatchRow]:
     return [
         _match("p_a", "John Smith", "999", "Someone Else"),
         _match("p_b", "John Smith", "998", "Another Person"),
+    ]
+
+
+def ambiguous_initial_matches() -> list[MatchRow]:
+    # Two different real first names sharing a surname AND initial —
+    # the abbreviated tier ("Djokovic N.") must not be able to tell them
+    # apart and must abstain, not silently pick one.
+    return [
+        _match("104925", "Novak Djokovic", "207989", "Carlos Alcaraz"),
+        _match("p_nikola", "Nikola Djokovic", "999999", "Filler Opponent"),
     ]
