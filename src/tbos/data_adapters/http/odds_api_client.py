@@ -103,7 +103,30 @@ class OddsApiClient:
             "apiKey": self._api_key, "regions": regions,
             "markets": markets, "oddsFormat": odds_format,
         }
+        return self._get_json(
+            url, params, log_extra={"sport_key": sport_key},
+            not_found_message=f"The Odds API has no sport_key={sport_key!r}",
+            operation_name=f"get_odds(sport_key={sport_key!r})",
+        )
 
+    def list_sports(self, *, all_sports: bool = True) -> list[dict]:
+        """GET /v4/sports/ — the sport_key catalog, including tennis
+        tournaments with their current `active` status. Historically
+        observed to not consume request quota (unlike /odds/), but that
+        is the provider's behavior, not a guarantee this client enforces.
+        """
+        url = f"{self._base_url}/sports/"
+        params = {"apiKey": self._api_key, "all": "true" if all_sports else "false"}
+        return self._get_json(
+            url, params, log_extra={"all_sports": all_sports},
+            not_found_message="The Odds API /sports endpoint returned 404 unexpectedly",
+            operation_name="list_sports()",
+        )
+
+    def _get_json(
+        self, url: str, params: dict[str, str], *,
+        log_extra: dict[str, object], not_found_message: str, operation_name: str,
+    ) -> list[dict]:
         def _do_request() -> list[dict]:
             try:
                 response = self._client.get(url, params=params)
@@ -118,14 +141,14 @@ class OddsApiClient:
                     "status_code": response.status_code,
                     "requests_remaining": response.headers.get("x-requests-remaining"),
                     "requests_used": response.headers.get("x-requests-used"),
-                    "sport_key": sport_key,
+                    **log_extra,
                 },
             )
 
             if response.status_code == 200:
                 return response.json()
             if response.status_code == 404:
-                raise EntityNotFoundError(f"The Odds API has no sport_key={sport_key!r}")
+                raise EntityNotFoundError(not_found_message)
             if response.status_code in (401, 403):
                 # Covers both a bad API key and an exhausted free-tier
                 # quota — The Odds API does not reliably distinguish the
@@ -152,7 +175,7 @@ class OddsApiClient:
                 backoff_base_seconds=self._backoff_base_seconds,
                 retryable=lambda exc: isinstance(exc, _RetryableHttpError),
                 logger=logger,
-                operation_name=f"get_odds(sport_key={sport_key!r})",
+                operation_name=operation_name,
             )
         except _RetryableHttpError as exc:
             raise SourceUnavailableError(str(exc)) from exc

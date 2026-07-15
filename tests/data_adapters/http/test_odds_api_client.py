@@ -20,6 +20,35 @@ def test_empty_api_key_rejected() -> None:
         OddsApiClient(api_key="")
 
 
+def test_list_sports_returns_json() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v4/sports/"
+        assert request.url.params["all"] == "true"
+        return httpx.Response(200, json=[{"key": "tennis_atp_wimbledon", "active": False}])
+
+    client = _client(handler)
+    result = client.list_sports()
+    assert result == [{"key": "tennis_atp_wimbledon", "active": False}]
+
+
+def test_list_sports_all_false_omits_inactive() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["all"] == "false"
+        return httpx.Response(200, json=[])
+
+    client = _client(handler)
+    assert client.list_sports(all_sports=False) == []
+
+
+def test_list_sports_401_raises_source_unavailable() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, text="bad key")
+
+    client = _client(handler)
+    with pytest.raises(SourceUnavailableError):
+        client.list_sports()
+
+
 def test_from_env_missing_key_raises_named_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "odds_api_key", None)
     with pytest.raises(OddsApiKeyMissingError, match="TBOS_ODDS_API_KEY"):

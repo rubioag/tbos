@@ -5,7 +5,7 @@ only new thing, everything downstream is unmodified.
 """
 
 import uuid
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -91,9 +91,15 @@ def test_tennis_data_enriched_state_flows_through_to_a_real_prediction(session: 
 
     store = PlayerNameMappingStore(tmp_path / "mappings.jsonl")
     resolver = PlayerNameResolver(real_player_matches(), store)
+    # TennisDataPlayerStateAdapter computes "today" via datetime.now(UTC)
+    # internally (not injectable, same pattern SackmannStatsAdapter
+    # already uses) — match_date must be derived the same way, not via
+    # date.today() (local time), to avoid a timezone/midnight-rollover
+    # off-by-one between test-write time and test-run time.
+    match_date = datetime.now(UTC).date() - timedelta(days=3)
     recent_rows = [
         TennisDataMatchRow(
-            match_date=date.today() - timedelta(days=3), winner_name="Djokovic N.", loser_name="Alcaraz C.",
+            match_date=match_date, winner_name="Djokovic N.", loser_name="Alcaraz C.",
             winner_sets=2, loser_sets=1, comment="Completed",
         ),
     ]

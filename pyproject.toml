@@ -17,6 +17,9 @@ dependencies = [
     "openpyxl>=3.1",
 ]
 
+[project.scripts]
+tbos = "tbos.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3",
