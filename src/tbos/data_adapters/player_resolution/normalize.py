@@ -3,11 +3,18 @@ same output, with no locale/OS-dependent behavior (pure Unicode
 normalization, no external calls, no randomness).
 
 Strips accents (NFKD decomposition + drop combining marks), flattens
-hyphens/periods/apostrophes to spaces or removes them, collapses
+hyphens/periods/commas/apostrophes to spaces or removes them, collapses
 whitespace, lowercases. This alone resolves most real cross-provider
 spelling differences exactly (e.g. "Félix Auger-Aliassime" vs Sackmann's
 "Felix Auger Aliassime" both normalize to "felix auger aliassime") —
 verified against TBOS's actual downloaded Sackmann data, not assumed.
+
+Comma-to-space (real bug, found via odds-api.io evidence): odds-api.io
+supplies names as "Surname, Firstname" (e.g. "Borges, Nuno"). Without
+this, the trailing comma stayed glued to the surname token ("borges,"),
+so neither the exact tier nor the reversed_order tier could ever match
+it against Sackmann's "Nuno Borges" — every odds-api.io name would have
+silently gone through fuzzy matching or abstained, for a wrong reason.
 """
 
 from __future__ import annotations
@@ -15,7 +22,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-_PUNCTUATION_TO_SPACE = str.maketrans({"-": " ", ".": " ", "'": "", "’": ""})
+_PUNCTUATION_TO_SPACE = str.maketrans({"-": " ", ".": " ", ",": " ", "'": "", "’": ""})
 _WHITESPACE_RE = re.compile(r"\s+")
 
 

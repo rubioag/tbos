@@ -1,15 +1,27 @@
 """Single operational entry point wiring together everything already
 built, in the order the user specified:
 
-    The Odds API -> Resolver -> Sackmann -> TennisDataPlayerStateAdapter
+    odds-api.io -> Resolver -> Sackmann -> TennisDataPlayerStateAdapter
     -> CE.1 -> CE.2 -> CE.3 -> CE.4 -> CE.5 -> Paper Trading -> Persistence
 
-This module contains ZERO new business logic. Every step below calls an
-existing, already-tested function from its own module — CE.1 ingestion,
-CE.2-CE.6 via `execute_paper_trading_cycle`, the three data adapters, and
-the resolver. This file only sequences those calls and logs each step,
-per the explicit requirement to register what happened and degrade
-honestly rather than fabricate.
+Odds provider migrated from The Odds API to odds-api.io: verified via
+real API calls that The Odds API's free tier does not cover ATP/WTA
+250-level tournaments at all (Bastad, Gstaad, Umag, Iasi, Athens absent
+from its catalog — confirmed both by full catalog dump and by
+UNKNOWN_SPORT errors on every plausible sport_key guess), while
+odds-api.io's `/v3/leagues?sport=tennis` lists all five with real,
+non-zero event counts, and `/v3/odds` returns real pre-match moneyline
+prices for at least one of the two free-tier-allowed bookmakers (Bet365,
+Betfair Exchange). Same `OddsSourceAdapter` contract, only the client and
+adapter implementation changed — nothing else in this file's downstream
+pipeline (CE.1 ingestion, CE.2-CE.6) needed to change.
+
+This module contains ZERO new business logic beyond that adapter swap.
+Every step below calls an existing, already-tested function from its own
+module — CE.1 ingestion, CE.2-CE.6 via `execute_paper_trading_cycle`, the
+three data adapters, and the resolver. This file only sequences those
+calls and logs each step, per the explicit requirement to register what
+happened and degrade honestly rather than fabricate.
 
 Known, documented simplifications (not bugs — real gaps in what the
 pipeline currently exposes, listed so they aren't mistaken for oversights):
@@ -19,15 +31,17 @@ pipeline currently exposes, listed so they aren't mistaken for oversights):
   the public Paper Trading API alone. Each match is evaluated against a
   fresh `current_deployed=0.0` — a real limitation of the current
   Paper Trading contract, not invented data.
-- The Odds API supplies no book liquidity/depth data. `BookQuote.
-  available_liquidity` is set to 0.0 for every quote (the same "not
-  derivable, documented" convention SackmannStatsAdapter already uses for
-  travel_distance_km/timezone_shift_hours) — CE.5 will therefore
-  conservatively cancel most BET_NOW plans for insufficient liquidity
-  until a real liquidity-providing source exists. This is intentional:
-  an honest "unknown" beats a fabricated depth number.
+- odds-api.io's free tier restricts callers to at most 2 bookmakers
+  (Bet365, Betfair Exchange) and supplies no book liquidity/depth data
+  for either. `BookQuote.available_liquidity` is set to 0.0 for every
+  quote (the same "not derivable, documented" convention
+  SackmannStatsAdapter already uses for travel_distance_km/
+  timezone_shift_hours) — CE.5 will therefore conservatively cancel most
+  BET_NOW plans for insufficient liquidity until a real
+  liquidity-providing source exists. This is intentional: an honest
+  "unknown" beats a fabricated depth number.
 - No StatsSourceAdapter/OddsSourceAdapter can supply MatchContext for a
-  real upcoming match (Sackmann is historical-only, The Odds API's
+  real upcoming match (Sackmann is historical-only, odds-api.io's
   adapter doesn't implement fetch_match_context). MatchContext is left
   unpublished; CE.2/CE.6 already degrade gracefully when it's absent
   (verified by existing tests) — this is not new behavior.
@@ -50,8 +64,8 @@ from tbos.ce2_prediction.registry_bootstrap import bootstrap_and_activate_all
 from tbos.ce5_execution.optimizer import BookQuote
 from tbos.data_adapters import ingestion
 from tbos.data_adapters.contracts import EntityNotFoundError, SourceUnavailableError
-from tbos.data_adapters.http.odds_api_adapter import OddsApiAdapter, OddsApiEventRef
-from tbos.data_adapters.http.odds_api_client import OddsApiClient
+from tbos.data_adapters.http.odds_api_io_adapter import OddsApiIoAdapter
+from tbos.data_adapters.http.odds_api_io_client import OddsApiIoClient
 from tbos.data_adapters.player_resolution.resolver import PlayerNameResolver
 from tbos.data_adapters.player_resolution.store import PlayerNameMappingStore
 from tbos.data_adapters.sackmann.adapter import SackmannStatsAdapter
@@ -80,8 +94,14 @@ from tbos.paper_trading.schemas import PaperTradingKPISnapshot
 
 logger = logging.getLogger("tbos.paper_trading.orchestrator")
 
-TENNIS_SPORT_GROUP = "Tennis"
 TOUR_SUBDIRS = ("atp", "wta")
+# Real, deterministic filter — not a heuristic: odds-api.io names doubles
+# leagues with this exact ", Doubles" suffix (confirmed live, e.g. "ATP -
+# Bastad, Sweden, Doubles"). TBOS's contract is 2-player singles only.
+DOUBLES_LEAGUE_SUFFIX = ", Doubles"
+# odds-api.io only reports pre-match/scheduled events under this status
+# (confirmed live: "live" and "settled" are the other two values seen).
+UPCOMING_EVENT_STATUS = "pending"
 
 
 def _load_all_tours(base_dir: Path, loader_cls: type) -> tuple[list, int]:
@@ -116,7 +136,7 @@ class MatchOutcome(BaseModel):
 
 
 class SkippedEvent(BaseModel):
-    sport_key: str
+    league: str
     event_id: str | None
     reason: str
 
@@ -218,31 +238,55 @@ def ensure_models_active(session: Session, *, as_of: datetime, reviewer_id: str)
     )
 
 
-def discover_active_tennis_events(client: OddsApiClient) -> list[dict]:
-    """Real, live discovery — no cached/assumed list of sport_keys.
-    Returns one dict per event, each already tagged with its sport_key.
+def discover_upcoming_tennis_events(client: OddsApiIoClient) -> list[dict]:
+    """Real, live discovery — no cached/assumed list of leagues.
+    odds-api.io models tennis as one sport with many `league` slugs (one
+    per tournament, singles and doubles separate) rather than The Odds
+    API's one-sport_key-per-tournament model. Returns one dict per
+    singles event, each already tagged with its league name, restricted
+    to `status="pending"` (not yet started — pre-match).
     """
-    sports = client.list_sports(all_sports=True)
-    active_tennis_keys = [
-        s["key"] for s in sports if s.get("group") == TENNIS_SPORT_GROUP and s.get("active")
+    try:
+        leagues = client.list_leagues(sport="tennis")
+    except (EntityNotFoundError, SourceUnavailableError) as exc:
+        # Real gap found running this live: a rate-limit/outage failure
+        # on this very first call used to crash the whole CLI with an
+        # unhandled traceback instead of degrading — the same "no data
+        # available" outcome the zero-events path already reports
+        # cleanly. A provider being unreachable is not a reason to
+        # fabricate a crash any more than it's a reason to fabricate data.
+        logger.warning(
+            "could not list tennis leagues, treating as no events available",
+            extra={"error": str(exc)},
+        )
+        return []
+
+    singles_leagues = [
+        league for league in leagues
+        if league.get("eventsCount", 0) > 0
+        and not league.get("name", "").endswith(DOUBLES_LEAGUE_SUFFIX)
     ]
+    league_names = [league_["name"] for league_ in singles_leagues]
     logger.info(
-        "active tennis tournaments found",
-        extra={"count": len(active_tennis_keys), "sport_keys": active_tennis_keys},
+        "tennis leagues with scheduled events found",
+        extra={"count": len(singles_leagues), "leagues": league_names},
     )
 
     events: list[dict] = []
-    for sport_key in active_tennis_keys:
+    for league in singles_leagues:
+        league_slug = league["slug"]
         try:
-            sport_events = client.get_odds(sport_key)
+            league_events = client.list_events(sport="tennis", league=league_slug)
         except (EntityNotFoundError, SourceUnavailableError) as exc:
             logger.warning(
-                "could not fetch odds for active sport_key, skipping",
-                extra={"sport_key": sport_key, "error": str(exc)},
+                "could not fetch events for league, skipping",
+                extra={"league": league_slug, "error": str(exc)},
             )
             continue
-        for event in sport_events:
-            event["sport_key"] = sport_key
+        for event in league_events:
+            if event.get("status") != UPCOMING_EVENT_STATUS:
+                continue
+            event["league"] = league["name"]
             events.append(event)
     return events
 
@@ -251,38 +295,59 @@ def _process_event(
     session: Session, *, event: dict, run_id: uuid.UUID, config_version_id: uuid.UUID,
     ingestion_config: DataIngestionConfig,
     resolver: PlayerNameResolver, profile_adapter: SackmannStatsAdapter,
-    state_adapter: TennisDataPlayerStateAdapter, odds_client: OddsApiClient,
+    state_adapter: TennisDataPlayerStateAdapter, odds_client: OddsApiIoClient,
     ensemble_config: EnsembleConfig, risk_config: RiskConfig,
     bankroll_total: float, as_of: datetime,
 ) -> MatchOutcome | SkippedEvent:
-    sport_key = event["sport_key"]
-    event_id = event.get("id")
-    home_team, away_team = event.get("home_team"), event.get("away_team")
+    league = event["league"]
+    raw_event_id = event.get("id")
+    event_id = str(raw_event_id) if raw_event_id is not None else None
+    home_name, away_name = event.get("home"), event.get("away")
 
-    if not event_id or not home_team or not away_team:
+    if not event_id or not home_name or not away_name:
         return SkippedEvent(
-            sport_key=sport_key, event_id=event_id, reason="event missing id/home_team/away_team",
+            league=league, event_id=event_id, reason="event missing id/home/away",
         )
 
     try:
-        player_a_id = resolver.resolve(home_team)
-        player_b_id = resolver.resolve(away_team)
+        player_a_id = resolver.resolve(home_name)
+        player_b_id = resolver.resolve(away_name)
     except EntityNotFoundError as exc:
         logger.warning(
             "player name resolution abstained, skipping event",
             extra={"event_id": event_id, "error": str(exc)},
         )
         return SkippedEvent(
-            sport_key=sport_key, event_id=event_id, reason=f"name resolution failed: {exc}",
+            league=league, event_id=event_id, reason=f"name resolution failed: {exc}",
         )
 
-    registry = {
-        event_id: OddsApiEventRef(
-            sport_key=sport_key, event_id=event_id,
-            player_a_name=home_team, player_b_name=away_team,
+    # odds-api.io event ids are globally unique and directly queryable —
+    # unlike The Odds API, no match_id -> (sport_key, event) registry is
+    # needed here.
+    odds_adapter = OddsApiIoAdapter(odds_client)
+
+    # Real bug found running this orchestrator against production data:
+    # calling both ingestion.ingest_odds() (which calls adapter.fetch_odds
+    # internally) AND a second, separate adapter.fetch_odds() call right
+    # after burned odds-api.io's 100-requests/hour free-tier quota twice
+    # as fast as necessary, exhausting it partway through a single real
+    # run (~380 real events on the day this was found — most got skipped
+    # with "rate limit hit" once quota ran out). Fix: fetch once here and
+    # skip the separate CE.1 MarketSnapshot publish entirely —
+    # execute_paper_trading_cycle takes offered_odds/quotes as direct
+    # parameters, it never reads MarketSnapshot back from CE.1, so that
+    # publish was pure (unread) audit trail, not a functional dependency.
+    # Re-implementing ingestion.ingest_odds()'s field-mapping here instead
+    # of calling it would duplicate CE.1 logic, which is explicitly out
+    # of scope — dropping the redundant call is the correct minimal fix.
+    try:
+        quotes = odds_adapter.fetch_odds(event_id, InstrumentType.MONEYLINE)
+    except (EntityNotFoundError, SourceUnavailableError) as exc:
+        logger.warning(
+            "no usable moneyline quotes, skipping event",
+            extra={"event_id": event_id, "error": str(exc)},
         )
-    }
-    odds_adapter = OddsApiAdapter(odds_client, registry)
+        return SkippedEvent(league=league, event_id=event_id, reason=f"no quotes: {exc}")
 
     ingest_kwargs = {
         "config": ingestion_config, "config_version_id": config_version_id, "now": as_of,
@@ -291,24 +356,12 @@ def _process_event(
     ingestion.ingest_player_profile(session, profile_adapter, player_b_id, **ingest_kwargs)
     ingestion.ingest_player_state(session, state_adapter, player_a_id, **ingest_kwargs)
     ingestion.ingest_player_state(session, state_adapter, player_b_id, **ingest_kwargs)
-    market_snapshots = ingestion.ingest_odds(
-        session, odds_adapter, event_id, InstrumentType.MONEYLINE, **ingest_kwargs,
-    )
     session.commit()
-
-    try:
-        quotes = odds_adapter.fetch_odds(event_id, InstrumentType.MONEYLINE)
-    except (EntityNotFoundError, SourceUnavailableError) as exc:
-        logger.warning(
-            "no usable moneyline quotes, skipping event",
-            extra={"event_id": event_id, "error": str(exc)},
-        )
-        return SkippedEvent(sport_key=sport_key, event_id=event_id, reason=f"no quotes: {exc}")
 
     player_a_quotes = [q for q in quotes if q.selection == "player_a"]
     if not player_a_quotes:
         return SkippedEvent(
-            sport_key=sport_key, event_id=event_id, reason="no player_a moneyline quotes",
+            league=league, event_id=event_id, reason="no player_a moneyline quotes",
         )
 
     best_quote = max(player_a_quotes, key=lambda q: q.odds)
@@ -322,7 +375,7 @@ def _process_event(
         extra={
             "match_id": event_id, "player_a_id": player_a_id, "player_b_id": player_b_id,
             "book_id": best_quote.book_id, "offered_odds": best_quote.odds,
-            "market_snapshots_published": len(market_snapshots),
+            "quotes_fetched": len(quotes),
         },
     )
 
@@ -358,7 +411,7 @@ def run_paper_trading_once(
     sackmann_dir: Path, tennis_data_dir: Path, resolver_store_path: Path,
     bankroll_total: float = 10_000.0, aggressiveness_threshold: float = 0.3,
     approved_by: str = "operator", reviewer_id: str = "operator",
-    odds_client: OddsApiClient | None = None,
+    odds_client: OddsApiIoClient | None = None,
 ) -> OrchestrationReport:
     as_of = datetime.now(UTC)
     logger.info("paper-run starting", extra={"as_of": as_of.isoformat()})
@@ -397,15 +450,17 @@ def run_paper_trading_once(
     state_adapter = TennisDataPlayerStateAdapter(profile_adapter, tennis_data_rows, resolver)
 
     if odds_client is None:
-        odds_client = OddsApiClient.from_env()
+        odds_client = OddsApiIoClient.from_env()
     try:
         run = runner.start_run(session, config_version_id=config_version_id, as_of=as_of)
         session.commit()
         logger.info("paper trading run started", extra={"run_id": str(run.run_id)})
 
-        events = discover_active_tennis_events(odds_client)
+        events = discover_upcoming_tennis_events(odds_client)
         if not events:
-            logger.info("no active tennis events found — no data to run Paper Trading on right now")
+            logger.info(
+                "no upcoming tennis events found — no data to run Paper Trading on right now"
+            )
 
         matches_processed: list[MatchOutcome] = []
         skipped_events: list[SkippedEvent] = []

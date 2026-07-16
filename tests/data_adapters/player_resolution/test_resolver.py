@@ -64,6 +64,18 @@ def test_reversed_word_order_resolves_via_reversed_order_tier(tmp_path) -> None:
     assert record.confidence == 0.95
 
 
+def test_odds_api_io_surname_comma_firstname_format_resolves(tmp_path) -> None:
+    """Real bug found via odds-api.io evidence: "Djokovic, Novak" must
+    resolve via reversed_order (comma stripped by normalize first), not
+    silently fall through to fuzzy or abstain.
+    """
+    resolver, store = _resolver(tmp_path)
+    player_id = resolver.resolve("Djokovic, Novak", now=NOW)
+    assert player_id == "104925"
+    record = store.get("the_odds_api", "Djokovic, Novak")
+    assert record.method == "reversed_order"
+
+
 def test_minor_typo_resolves_via_fuzzy_tier_with_recorded_confidence(tmp_path) -> None:
     resolver, store = _resolver(tmp_path)
     player_id = resolver.resolve("Novak Djokovc", now=NOW)  # missing 'i'

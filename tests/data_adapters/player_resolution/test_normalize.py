@@ -38,3 +38,16 @@ def test_case_insensitive() -> None:
 def test_deterministic_same_input_same_output() -> None:
     name = "Botic van de Zandschulp"
     assert normalize_player_name(name) == normalize_player_name(name)
+
+
+def test_comma_becomes_space() -> None:
+    # Real bug found via odds-api.io evidence: "Surname, Firstname" must
+    # not leave a dangling comma glued to the surname token.
+    assert normalize_player_name("Borges, Nuno") == "borges nuno"
+
+
+def test_surname_comma_firstname_matches_reversed_sackmann_form() -> None:
+    odds_api_io_form = normalize_player_name("Borges, Nuno")
+    sackmann_form = normalize_player_name("Nuno Borges")
+    tokens = odds_api_io_form.split(" ")
+    assert " ".join(tokens[::-1]) == sackmann_form

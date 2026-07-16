@@ -75,7 +75,7 @@ def _print_report(report) -> None:  # noqa: ANN001 - OrchestrationReport, avoids
     print("=== TBOS Paper Trading — run summary ===")
     print(f"run_id: {report.run_id}")
     print(f"config_version_id: {report.config_version_id}")
-    print(f"tennis events checked (The Odds API, active tournaments only): {report.events_checked}")
+    print(f"tennis events checked (odds-api.io, upcoming/pre-match only): {report.events_checked}")
     print(f"matches processed: {len(report.matches_processed)}")
     print(f"events skipped: {len(report.skipped_events)}")
 
@@ -83,7 +83,7 @@ def _print_report(report) -> None:  # noqa: ANN001 - OrchestrationReport, avoids
         print()
         print(
             "No hay datos para ejecutar Paper Trading — "
-            "0 torneos de tenis activos en The Odds API ahora mismo."
+            "0 partidos de tenis pendientes en odds-api.io ahora mismo."
         )
 
     for outcome in report.matches_processed:
@@ -94,7 +94,7 @@ def _print_report(report) -> None:  # noqa: ANN001 - OrchestrationReport, avoids
         )
     for skipped in report.skipped_events:
         print(
-            f"  SKIPPED sport_key={skipped.sport_key} event_id={skipped.event_id} "
+            f"  SKIPPED league={skipped.league} event_id={skipped.event_id} "
             f"reason={skipped.reason}"
         )
 
@@ -113,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     paper_run = subparsers.add_parser(
         "paper-run",
-        help="Run one real Paper Trading cycle: The Odds API -> Resolver -> Sackmann -> "
+        help="Run one real Paper Trading cycle: odds-api.io -> Resolver -> Sackmann -> "
              "TennisDataPlayerStateAdapter -> CE.1 -> CE.2 -> CE.3 -> CE.4 -> CE.5 -> "
              "Paper Trading -> Persistence.",
     )
