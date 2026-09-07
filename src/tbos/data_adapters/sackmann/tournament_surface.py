@@ -32,10 +32,20 @@ system doesn't currently download) resolve to nothing — never fabricated.
 
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 
 from tbos.data_adapters.sackmann.models import SURFACE_MAP, MatchRow
 from tbos.inf1_config.taxonomy import Surface
+
+# Providers punctuate tournament names differently for the same event —
+# Sackmann stores "Winston-Salem", odds-api.io sends "Winston Salem". Both
+# sides go through the same collapse, so neither spelling is privileged.
+_PUNCTUATION = re.compile(r"[^0-9a-z]+")
+
+# A provider sometimes numbers a second edition held in the same year
+# ("Kingston 2"); Sackmann only ever names the base tournament.
+_EDITION_SUFFIX = re.compile(r"\s+\d+$")
 
 # How many of a tournament's most recent editions are allowed to speak for
 # its current surface. Wide enough that a single freak edition (a one-off
@@ -46,7 +56,13 @@ RECENT_EDITIONS_WINDOW = 10
 
 
 def normalize_tournament_name(name: str) -> str:
-    return name.strip().lower()
+    """Lowercase and collapse every run of punctuation/whitespace to one
+    space. Two names that differ only in punctuation therefore land on the
+    same key — which is a merge, not a guess: if the merged name turns out
+    to cover two real tournaments on different surfaces, the one-surface
+    rule below excludes it exactly as it would any other ambiguous name.
+    """
+    return _PUNCTUATION.sub(" ", name.strip().lower()).strip()
 
 
 def build_tournament_surface_lookup(
@@ -83,8 +99,20 @@ def resolve_league_surface(league_name: str, lookup: dict[str, Surface]) -> Surf
     if "," in text:
         candidates.append(text.split(",", 1)[0].strip())
 
-    for candidate in candidates:
-        surface = lookup.get(normalize_tournament_name(candidate))
+    normalized = [normalize_tournament_name(c) for c in candidates]
+    for candidate in normalized:
+        surface = lookup.get(candidate)
+        if surface is not None:
+            return surface
+
+    # Last resort only: a numbered edition falls back to its base name, and
+    # never before every exact form has been tried — so a numbered event that
+    # exists in its own right still wins.
+    for candidate in normalized:
+        stripped = _EDITION_SUFFIX.sub("", candidate)
+        if stripped == candidate:
+            continue
+        surface = lookup.get(stripped)
         if surface is not None:
             return surface
     return None

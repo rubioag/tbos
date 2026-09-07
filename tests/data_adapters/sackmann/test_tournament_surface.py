@@ -124,3 +124,45 @@ def test_resolve_league_surface_unknown_tournament_returns_none() -> None:
 def test_resolve_league_surface_case_and_whitespace_insensitive() -> None:
     lookup = {"athens": Surface.CLAY}
     assert resolve_league_surface("WTA -   ATHENS  , Greece", lookup) == Surface.CLAY
+
+
+def test_punctuation_differences_do_not_block_a_match() -> None:
+    # Real case: Sackmann stores "Winston-Salem", odds-api.io sends
+    # "ATP - Winston Salem, USA". Same tournament, one hyphen apart.
+    matches = [_match("Winston-Salem", "Hard", year) for year in range(2015, 2025)]
+    lookup = build_tournament_surface_lookup(matches)
+    assert resolve_league_surface("ATP - Winston Salem, USA", lookup) == Surface.HARD
+
+
+def test_punctuation_normalisation_is_symmetric() -> None:
+    # The reverse spelling must work too — neither side is privileged.
+    matches = [_match("Winston Salem", "Hard", year) for year in range(2015, 2025)]
+    lookup = build_tournament_surface_lookup(matches)
+    assert resolve_league_surface("ATP - Winston-Salem, USA", lookup) == Surface.HARD
+
+
+def test_numeric_edition_suffix_falls_back_to_the_base_tournament() -> None:
+    # A second edition in the same year ("Kingston 2") is the same event on
+    # the same surface; Sackmann only ever names the base tournament.
+    matches = [_match("Kingston", "Hard", year) for year in range(2015, 2025)]
+    lookup = build_tournament_surface_lookup(matches)
+    assert resolve_league_surface("Challenger - Kingston 2, Jamaica", lookup) == Surface.HARD
+
+
+def test_numeric_suffix_never_overrides_an_exact_match() -> None:
+    # If the numbered name exists in its own right, it wins — the suffix
+    # fallback is a last resort, never a substitution.
+    matches = [_match("Kingston", "Hard", y) for y in range(2015, 2025)]
+    matches += [_match("Kingston 2", "Clay", y) for y in range(2015, 2025)]
+    lookup = build_tournament_surface_lookup(matches)
+    assert resolve_league_surface("Challenger - Kingston 2, Jamaica", lookup) == Surface.CLAY
+
+
+def test_punctuation_collision_between_real_tournaments_is_excluded_not_guessed() -> None:
+    # If collapsing punctuation merges two genuinely different tournaments
+    # that play on different surfaces, the anti-guessing rule must still
+    # exclude the merged name rather than pick one.
+    matches = [_match("Saint-Malo", "Clay", y) for y in range(2015, 2025)]
+    matches += [_match("Saint Malo", "Hard", y) for y in range(2015, 2025)]
+    lookup = build_tournament_surface_lookup(matches)
+    assert "saint malo" not in lookup
