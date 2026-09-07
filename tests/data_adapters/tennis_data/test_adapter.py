@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -14,8 +14,18 @@ from tbos.data_adapters.tennis_data.adapter import TennisDataPlayerStateAdapter
 from tbos.data_adapters.tennis_data.models import TennisDataMatchRow
 from tests.data_adapters.player_resolution.fixtures import real_player_matches
 
-NOW = datetime(2026, 7, 15, tzinfo=UTC)
+NOW = datetime(2026, 7, 15, tzinfo=UTC)  # solo metadato de las fixtures
 DJOKOVIC_ID = "104925"
+
+
+def _days_ago(n: int) -> date:
+    """Fecha desplazada respecto al reloj real.
+
+    El adaptador ventana contra `datetime.now()` y no acepta un `as_of`
+    inyectable, asi que cualquier fecha absoluta en estos tests caduca en
+    cuanto pasa la ventana. Todo se expresa en dias relativos a hoy.
+    """
+    return datetime.now(UTC).date() - timedelta(days=n)
 
 
 def _base_metadata() -> SourceMetadata:
@@ -89,7 +99,7 @@ def test_no_tennis_data_rows_falls_back_to_base_unchanged(tmp_path) -> None:
 
 def test_base_adapter_missing_player_propagates(tmp_path) -> None:
     base = FakeBaseAdapter({})
-    rows = [_row(date(2026, 7, 1), "Djokovic N.", "Alcaraz C.")]
+    rows = [_row(_days_ago(5), "Djokovic N.", "Alcaraz C.")]
     adapter = TennisDataPlayerStateAdapter(base, rows, _resolver(tmp_path))
     with pytest.raises(EntityNotFoundError):
         adapter.fetch_player_state(DJOKOVIC_ID)
@@ -99,8 +109,8 @@ def test_recent_matches_override_only_the_four_activity_fields(tmp_path) -> None
     base_state = _base_state()
     base = FakeBaseAdapter({DJOKOVIC_ID: base_state})
     rows = [
-        _row(date(2026, 7, 10), "Djokovic N.", "Alcaraz C.", wsets=2, lsets=1),
-        _row(date(2026, 7, 5), "Auger-Aliassime F.", "Djokovic N.", wsets=2, lsets=0),
+        _row(_days_ago(5), "Djokovic N.", "Alcaraz C.", wsets=2, lsets=1),
+        _row(_days_ago(10), "Auger-Aliassime F.", "Djokovic N.", wsets=2, lsets=0),
     ]
     adapter = TennisDataPlayerStateAdapter(base, rows, _resolver(tmp_path))
 
@@ -109,8 +119,7 @@ def test_recent_matches_override_only_the_four_activity_fields(tmp_path) -> None
     assert result.matches_last_14d == 2
     # row1: Djokovic is winner, won 2 sets. row2: Djokovic is loser, won 0 sets.
     assert result.sets_played_last_14d == 2 + 0
-    today = datetime.now(UTC).date()
-    assert result.days_since_last_match == (today - date(2026, 7, 10)).days
+    assert result.days_since_last_match == 5
     # untouched fields, taken straight from the base record
     assert result.travel_distance_km == base_state.travel_distance_km
     assert result.timezone_shift_hours == base_state.timezone_shift_hours
@@ -120,7 +129,7 @@ def test_recent_matches_override_only_the_four_activity_fields(tmp_path) -> None
 
 def test_retirement_loss_flags_injury(tmp_path) -> None:
     base = FakeBaseAdapter({DJOKOVIC_ID: _base_state()})
-    rows = [_row(date(2026, 7, 10), "Alcaraz C.", "Djokovic N.", wsets=2, lsets=0, comment="Retired")]
+    rows = [_row(_days_ago(5), "Alcaraz C.", "Djokovic N.", wsets=2, lsets=0, comment="Retired")]
     adapter = TennisDataPlayerStateAdapter(base, rows, _resolver(tmp_path))
 
     result = adapter.fetch_player_state(DJOKOVIC_ID)
@@ -132,7 +141,7 @@ def test_retirement_loss_flags_injury(tmp_path) -> None:
 def test_retirement_win_does_not_flag_injury(tmp_path) -> None:
     """Djokovic WON via the opponent's retirement — he isn't the injured one."""
     base = FakeBaseAdapter({DJOKOVIC_ID: _base_state()})
-    rows = [_row(date(2026, 7, 10), "Djokovic N.", "Alcaraz C.", comment="Retired")]
+    rows = [_row(_days_ago(5), "Djokovic N.", "Alcaraz C.", comment="Retired")]
     adapter = TennisDataPlayerStateAdapter(base, rows, _resolver(tmp_path))
 
     result = adapter.fetch_player_state(DJOKOVIC_ID)
@@ -142,7 +151,7 @@ def test_retirement_win_does_not_flag_injury(tmp_path) -> None:
 def test_walkover_does_not_flag_injury(tmp_path) -> None:
     """Per explicit scope: only 'Retired' feeds the injury heuristic."""
     base = FakeBaseAdapter({DJOKOVIC_ID: _base_state()})
-    rows = [_row(date(2026, 7, 10), "Alcaraz C.", "Djokovic N.", comment="Walkover")]
+    rows = [_row(_days_ago(5), "Alcaraz C.", "Djokovic N.", comment="Walkover")]
     adapter = TennisDataPlayerStateAdapter(base, rows, _resolver(tmp_path))
 
     result = adapter.fetch_player_state(DJOKOVIC_ID)
@@ -151,7 +160,7 @@ def test_walkover_does_not_flag_injury(tmp_path) -> None:
 
 def test_old_injury_outside_lookback_window_not_flagged(tmp_path) -> None:
     base = FakeBaseAdapter({DJOKOVIC_ID: _base_state()})
-    rows = [_row(date(2026, 1, 1), "Alcaraz C.", "Djokovic N.", comment="Retired")]  # >30d before NOW
+    rows = [_row(_days_ago(120), "Alcaraz C.", "Djokovic N.", comment="Retired")]  # fuera de los 30d
     adapter = TennisDataPlayerStateAdapter(base, rows, _resolver(tmp_path))
 
     result = adapter.fetch_player_state(DJOKOVIC_ID)
@@ -160,7 +169,7 @@ def test_old_injury_outside_lookback_window_not_flagged(tmp_path) -> None:
 
 def test_unresolvable_name_row_ignored_not_crashed(tmp_path) -> None:
     base = FakeBaseAdapter({DJOKOVIC_ID: _base_state()})
-    rows = [_row(date(2026, 7, 10), "Totally Unknown Player X.", "Also Unknown Y.")]
+    rows = [_row(_days_ago(5), "Totally Unknown Player X.", "Also Unknown Y.")]
     adapter = TennisDataPlayerStateAdapter(base, rows, _resolver(tmp_path))
 
     # Falls back to base since none of these rows attribute to Djokovic.
@@ -171,7 +180,7 @@ def test_unresolvable_name_row_ignored_not_crashed(tmp_path) -> None:
 def test_future_dated_row_ignored(tmp_path) -> None:
     base_state = _base_state()
     base = FakeBaseAdapter({DJOKOVIC_ID: base_state})
-    rows = [_row(date(2026, 12, 25), "Djokovic N.", "Alcaraz C.")]  # after NOW
+    rows = [_row(_days_ago(-30), "Djokovic N.", "Alcaraz C.")]  # con fecha futura
     adapter = TennisDataPlayerStateAdapter(base, rows, _resolver(tmp_path))
 
     result = adapter.fetch_player_state(DJOKOVIC_ID)
