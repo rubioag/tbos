@@ -40,11 +40,15 @@ pipeline currently exposes, listed so they aren't mistaken for oversights):
   BET_NOW plans for insufficient liquidity until a real
   liquidity-providing source exists. This is intentional: an honest
   "unknown" beats a fabricated depth number.
-- No StatsSourceAdapter/OddsSourceAdapter can supply MatchContext for a
-  real upcoming match (Sackmann is historical-only, odds-api.io's
-  adapter doesn't implement fetch_match_context). MatchContext is left
-  unpublished; CE.2/CE.6 already degrade gracefully when it's absent
-  (verified by existing tests) — this is not new behavior.
+- MatchContext.surface is now published when resolvable (see
+  tournament_surface.py), but every OTHER MatchContext field
+  (tournament_id, round, indoor_outdoor, weather_*, altitude_m, best_of)
+  is a placeholder — no real source for them exists, and none of the
+  five Models currently read them (checked: only `match_context.surface`
+  appears in any Model's required_fields). Only `scheduled_start` is
+  real (odds-api.io's own event date). If a future Model ever reads one
+  of the placeholder fields, this will need real data, not this
+  convention silently extended.
 """
 
 from __future__ import annotations
@@ -63,13 +67,26 @@ from tbos.ce2_prediction.input_bundle import ModelInputBundle
 from tbos.ce2_prediction.registry_bootstrap import bootstrap_and_activate_all
 from tbos.ce5_execution.optimizer import BookQuote
 from tbos.data_adapters import ingestion
-from tbos.data_adapters.contracts import EntityNotFoundError, SourceUnavailableError
+from tbos.data_adapters.contracts import (
+    EntityNotFoundError,
+    RawMatchContextRecord,
+    RawPlayerStateRecord,
+    RawPlayerStatsRecord,
+    SourceMetadata,
+    SourceUnavailableError,
+    StatsSourceAdapter,
+)
 from tbos.data_adapters.http.odds_api_io_adapter import OddsApiIoAdapter
 from tbos.data_adapters.http.odds_api_io_client import OddsApiIoClient
 from tbos.data_adapters.player_resolution.resolver import PlayerNameResolver
 from tbos.data_adapters.player_resolution.store import PlayerNameMappingStore
 from tbos.data_adapters.sackmann.adapter import SackmannStatsAdapter
+from tbos.data_adapters.sackmann.elo import EloRatings
 from tbos.data_adapters.sackmann.loader import SackmannMatchLoader
+from tbos.data_adapters.sackmann.tournament_surface import (
+    build_tournament_surface_lookup,
+    resolve_league_surface,
+)
 from tbos.data_adapters.tennis_data.adapter import TennisDataPlayerStateAdapter
 from tbos.data_adapters.tennis_data.loader import TennisDataLoader
 from tbos.inf1_config import repository as inf1_repository
@@ -99,6 +116,17 @@ TOUR_SUBDIRS = ("atp", "wta")
 # leagues with this exact ", Doubles" suffix (confirmed live, e.g. "ATP -
 # Bastad, Sweden, Doubles"). TBOS's contract is 2-player singles only.
 DOUBLES_LEAGUE_SUFFIX = ", Doubles"
+# Provider-specific quota optimization (odds-api.io free tier: 100
+# requests/hour): discover_upcoming_tennis_events() calls list_events()
+# once per league, so a large catalog exhausts quota on discovery alone —
+# real, observed live: the league catalog grew from 13 to 157 between two
+# runs the same day (ITF/UTR/etc. leagues appearing), and that second run
+# hit 0/100 before a single odds call. Allowlist, not a denylist, and
+# based on real league name prefixes captured from actual odds-api.io
+# responses (ATP/WTA/WTA125K/Challenger — the only tiers TBOS targets;
+# see the provider-migration investigation) — never event IDs, so it
+# stays correct as the catalog's specific leagues change day to day.
+ALLOWED_LEAGUE_NAME_PREFIXES = ("ATP - ", "WTA - ", "WTA 125K - ", "Challenger - ")
 # odds-api.io only reports pre-match/scheduled events under this status
 # (confirmed live: "live" and "settled" are the other two values seen).
 UPCOMING_EVENT_STATUS = "pending"
@@ -124,6 +152,70 @@ def _load_all_tours(base_dir: Path, loader_cls: type) -> tuple[list, int]:
         rows.extend(loader.load_all())
         files_loaded += loader.loaded_file_count()
     return rows, files_loaded
+
+
+class _StaticMatchContextAdapter(StatsSourceAdapter):
+    """Wraps one already-built RawMatchContextRecord so it can be
+    published through the existing, unmodified ingestion.ingest_match_context()
+    — reuses CE.1's real field-mapping instead of duplicating it here.
+    fetch_player_profile/fetch_player_state are never used through this
+    path and always abstain.
+    """
+
+    source_id = "tournament_surface_lookup"
+
+    def __init__(self, match_id: str, record: RawMatchContextRecord) -> None:
+        self._match_id = match_id
+        self._record = record
+
+    def fetch_player_profile(self, player_id: str) -> RawPlayerStatsRecord:
+        raise EntityNotFoundError("_StaticMatchContextAdapter only supplies MatchContext")
+
+    def fetch_player_state(self, player_id: str) -> RawPlayerStateRecord:
+        raise EntityNotFoundError("_StaticMatchContextAdapter only supplies MatchContext")
+
+    def fetch_match_context(self, match_id: str) -> RawMatchContextRecord:
+        if match_id != self._match_id:
+            raise EntityNotFoundError(f"no static MatchContext for {match_id!r}")
+        return self._record
+
+
+def _build_match_context_record(
+    match_id: str, surface: Surface, scheduled_start: datetime, *,
+    collected_at: datetime, source_trust_score: float,
+) -> RawMatchContextRecord:
+    """`surface` (real, from tournament_surface.py) and `scheduled_start`
+    (real, odds-api.io's own event date) are genuine. `best_of=BO3` is a
+    real competition-format fact, not a guess: every tournament this
+    system currently discovers (ATP 250/500, Challenger, WTA, WTA 125K)
+    plays best-of-3 — only the 4 Grand Slams' men's draw is best-of-5,
+    and none of those appear in odds-api.io's free-tier catalog today.
+    If Slam coverage is ever added, this fixed BO3 would need revisiting.
+    Every remaining field (tournament_id, round, indoor_outdoor,
+    weather_*, altitude_m) has no real source anywhere in this system
+    yet and is filled with the same documented "not derivable"
+    placeholder convention SackmannStatsAdapter already uses for
+    travel_distance_km/timezone_shift_hours — never read by any
+    currently active Model (verified: only match_context.surface appears
+    in any Model's required_fields).
+
+    `collected_at` must be when the surface fact was actually derived
+    (i.e. `as_of`/now), not `scheduled_start` (the match's future kickoff
+    time). Real bug found live: stamping collected_at with a future
+    timestamp made CE.1's own validation correctly reject the whole
+    record as "collected_at is future-dated", nulling out every field
+    including a perfectly valid, already-known surface.
+    """
+    metadata = SourceMetadata(
+        source_id="tournament_surface_lookup", collected_at=collected_at,
+        parser_version="1.0.0", source_priority_rank=1, source_trust_score=source_trust_score,
+    )
+    return RawMatchContextRecord(
+        match_id=match_id, tournament_id="unknown", round="unknown", surface=surface.value,
+        indoor_outdoor="unknown", weather_temp_c=0.0, weather_wind_kph=0.0,
+        weather_humidity_pct=0.0, altitude_m=0.0, scheduled_start=scheduled_start,
+        best_of=BestOf.BO3.value, metadata=metadata,
+    )
 
 
 class MatchOutcome(BaseModel):
@@ -203,6 +295,7 @@ def _representative_bundle(as_of: datetime) -> ModelInputBundle:
         return_points_won_pct_by_surface=_env({"HARD": 0.35}),
         break_points_converted_pct_by_surface=_env({"HARD": 0.38}),
         style_tags=_env(["baseline"]), career_stage=_env("PEAK"), h2h_records=_env([]),
+        elo_rating=_env(1500.0), elo_rating_by_surface=_env({"HARD": 1500.0}),
     )
     state = PlayerState(
         player_id=_env("bootstrap"), injury_flags=_env([]),
@@ -266,6 +359,19 @@ def discover_upcoming_tennis_events(client: OddsApiIoClient) -> list[dict]:
         if league.get("eventsCount", 0) > 0
         and not league.get("name", "").endswith(DOUBLES_LEAGUE_SUFFIX)
     ]
+    before_tier_filter = len(singles_leagues)
+    singles_leagues = [
+        league for league in singles_leagues
+        if league.get("name", "").startswith(ALLOWED_LEAGUE_NAME_PREFIXES)
+    ]
+    logger.info(
+        "tier filter applied (ATP/WTA/WTA125/Challenger only)",
+        extra={
+            "leagues_before_filter": before_tier_filter,
+            "leagues_after_filter": len(singles_leagues),
+            "requests_saved_estimate": before_tier_filter - len(singles_leagues),
+        },
+    )
     league_names = [league_["name"] for league_ in singles_leagues]
     logger.info(
         "tennis leagues with scheduled events found",
@@ -296,6 +402,7 @@ def _process_event(
     ingestion_config: DataIngestionConfig,
     resolver: PlayerNameResolver, profile_adapter: SackmannStatsAdapter,
     state_adapter: TennisDataPlayerStateAdapter, odds_client: OddsApiIoClient,
+    tournament_surface_lookup: dict[str, Surface],
     ensemble_config: EnsembleConfig, risk_config: RiskConfig,
     bankroll_total: float, as_of: datetime,
 ) -> MatchOutcome | SkippedEvent:
@@ -356,6 +463,28 @@ def _process_event(
     ingestion.ingest_player_profile(session, profile_adapter, player_b_id, **ingest_kwargs)
     ingestion.ingest_player_state(session, state_adapter, player_a_id, **ingest_kwargs)
     ingestion.ingest_player_state(session, state_adapter, player_b_id, **ingest_kwargs)
+
+    surface = resolve_league_surface(league, tournament_surface_lookup)
+    if surface is not None:
+        event_date_raw = event.get("date")
+        scheduled_start = (
+            datetime.fromisoformat(event_date_raw.replace("Z", "+00:00"))
+            if event_date_raw else as_of
+        )
+        match_context_record = _build_match_context_record(
+            event_id, surface, scheduled_start, collected_at=as_of, source_trust_score=0.85,
+        )
+        match_context_adapter = _StaticMatchContextAdapter(event_id, match_context_record)
+        ingestion.ingest_match_context(session, match_context_adapter, event_id, **ingest_kwargs)
+        logger.info(
+            "resolved tournament surface",
+            extra={"event_id": event_id, "league": league, "surface": surface.value},
+        )
+    else:
+        logger.info(
+            "no tournament surface available, MatchContext left unpublished",
+            extra={"event_id": event_id, "league": league},
+        )
     session.commit()
 
     player_a_quotes = [q for q in quotes if q.selection == "player_a"]
@@ -379,9 +508,24 @@ def _process_event(
         },
     )
 
+    # Real bug found live: CE.2's anti-lookahead guarantee
+    # (get_snapshot_as_of: published_at <= as_of) is correct for
+    # backtesting, but this `as_of` is captured once at run start, before
+    # any of this match's CE.1 snapshots are published. Snapshot.published_at
+    # is the real DB insert wall-clock, always later — so a same-run
+    # snapshot (e.g. a freshly-resolved MatchContext) could never satisfy
+    # `published_at <= as_of` and was silently invisible to CE.2, with no
+    # error, just missing_fields. The evaluation instant for a live run
+    # must be "now, after this match's ingestion is committed" — captured
+    # here, after ingest_match_context's session.commit() above — not the
+    # run-start `as_of`. This does not weaken the anti-lookahead guarantee:
+    # it still refuses any snapshot published after evaluation time, there
+    # just aren't any, since evaluation happens immediately after ingestion.
+    evaluation_as_of = datetime.now(UTC)
     bet = execute_paper_trading_cycle(
         session, run_id,
-        match_id=event_id, player_a_id=player_a_id, player_b_id=player_b_id, as_of=as_of,
+        match_id=event_id, player_a_id=player_a_id, player_b_id=player_b_id,
+        as_of=evaluation_as_of,
         ensemble_config=ensemble_config, risk_config=risk_config,
         instrument_type=InstrumentType.MONEYLINE,
         book_id=best_quote.book_id, offered_odds=best_quote.odds, quotes=book_quotes,
@@ -434,6 +578,17 @@ def run_paper_trading_once(
         "Sackmann history loaded",
         extra={"files": sackmann_files, "matches": len(sackmann_matches)},
     )
+    tournament_surface_lookup = build_tournament_surface_lookup(sackmann_matches)
+    logger.info(
+        "tournament surface lookup built",
+        extra={"tournaments_with_known_surface": len(tournament_surface_lookup)},
+    )
+
+    # Built once per process from full history (never recomputed mid-run,
+    # never persisted) — deterministically reconstructible from Sackmann
+    # history alone. See elo.py module docstring.
+    elo_ratings = EloRatings.from_matches(sackmann_matches)
+    logger.info("Elo ratings built from Sackmann history")
 
     logger.info(
         "loading tennis-data.co.uk recent activity", extra={"data_dir": str(tennis_data_dir)},
@@ -446,7 +601,7 @@ def run_paper_trading_once(
 
     store = PlayerNameMappingStore(resolver_store_path)
     resolver = PlayerNameResolver(sackmann_matches, store)
-    profile_adapter = SackmannStatsAdapter(sackmann_matches)
+    profile_adapter = SackmannStatsAdapter(sackmann_matches, elo_ratings=elo_ratings)
     state_adapter = TennisDataPlayerStateAdapter(profile_adapter, tennis_data_rows, resolver)
 
     if odds_client is None:
@@ -469,7 +624,8 @@ def run_paper_trading_once(
                 session, event=event, run_id=run.run_id, config_version_id=config_version_id,
                 ingestion_config=ingestion_config,
                 resolver=resolver, profile_adapter=profile_adapter, state_adapter=state_adapter,
-                odds_client=odds_client, ensemble_config=EnsembleConfig(),
+                odds_client=odds_client, tournament_surface_lookup=tournament_surface_lookup,
+                ensemble_config=EnsembleConfig(),
                 risk_config=RiskConfig(aggressiveness_threshold=aggressiveness_threshold),
                 bankroll_total=bankroll_total, as_of=as_of,
             )

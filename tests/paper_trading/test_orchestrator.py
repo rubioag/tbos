@@ -17,11 +17,12 @@ import httpx
 import openpyxl
 from sqlalchemy.orm import Session
 
+from tbos.ce1_data import repository as ce1_repository
 from tbos.data_adapters.http.odds_api_io_client import OddsApiIoClient
-from tbos.paper_trading.orchestrator import run_paper_trading_once
+from tbos.paper_trading.orchestrator import discover_upcoming_tennis_events, run_paper_trading_once
 
 SACKMANN_HEADER = [
-    "tourney_date", "surface", "tourney_level", "round", "best_of", "score",
+    "tourney_date", "tourney_name", "surface", "tourney_level", "round", "best_of", "score",
     "winner_id", "winner_name", "winner_hand", "winner_age", "winner_rank",
     "loser_id", "loser_name", "loser_hand", "loser_age", "loser_rank",
     "w_ace", "w_df", "w_svpt", "w_1stIn", "w_1stWon", "w_2ndWon", "w_SvGms", "w_bpSaved", "w_bpFaced",
@@ -29,9 +30,12 @@ SACKMANN_HEADER = [
 ]
 
 
-def _sackmann_row(tourney_date: str, winner_id: str, winner_name: str, loser_id: str, loser_name: str) -> list:
+def _sackmann_row(
+    tourney_date: str, winner_id: str, winner_name: str, loser_id: str, loser_name: str,
+    tourney_name: str = "", surface: str = "Hard",
+) -> list:
     return [
-        tourney_date, "Hard", "A", "F", 3, "6-4 6-3",
+        tourney_date, tourney_name, surface, "A", "F", 3, "6-4 6-3",
         winner_id, winner_name, "R", 24.5, 10,
         loser_id, loser_name, "R", 26.1, 20,
         8, 2, 80, 50, 40, 20, 12, 3, 4,
@@ -48,6 +52,19 @@ def _write_sackmann_csv(path) -> None:
         # reversed_order tier bridges the two.
         writer.writerow(_sackmann_row("20240110", "p1", "One Player", "p2", "Two Player"))
         writer.writerow(_sackmann_row("20240215", "p1", "One Player", "p2", "Two Player"))
+
+
+def _write_sackmann_csv_with_bastad(path) -> None:
+    """Real evidence: ATP Bastad is Clay in every loaded year (2003-2024).
+    A second, unrelated tournament ("Wimbledon" here) proves the lookup
+    is per-tournament, not a blanket default.
+    """
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(SACKMANN_HEADER)
+        writer.writerow(_sackmann_row("20220101", "p1", "One Player", "p2", "Two Player", "Bastad", "Clay"))
+        writer.writerow(_sackmann_row("20230101", "p1", "One Player", "p2", "Two Player", "Bastad", "Clay"))
+        writer.writerow(_sackmann_row("20240101", "p1", "One Player", "p2", "Two Player", "Wimbledon", "Grass"))
 
 
 def _write_tennis_data_xlsx(path) -> None:
@@ -135,6 +152,103 @@ def test_paper_run_processes_a_real_upcoming_event_end_to_end(session: Session, 
     assert outcome.player_b_id == "p2"
     assert outcome.confidence_flag in {"NORMAL", "DEGRADED", "ABSTAINED"}
     assert outcome.structural_error is False
+
+
+def test_paper_run_prediction_sees_same_run_match_context(session: Session, tmp_path) -> None:
+    """Real bug: run_paper_trading_once froze `as_of` once at run start,
+    before any ingestion happened. CE.2's anti-lookahead guarantee
+    (get_snapshot_as_of: published_at <= as_of) then silently rejected
+    every same-run snapshot, since Snapshot.published_at is the real DB
+    insert wall-clock and is always later than that frozen as_of. Every
+    match reaching CE.2 without any prior-run snapshot to fall back on
+    would abstain with quorum_below_absolute_minimum even with perfectly
+    valid, freshly-published data. Proven here: with Bastad correctly
+    resolving to Clay and both players' Sackmann profiles available, at
+    least one of the surface-dependent models (serve/return/surface/
+    matchup) must actually vote, not just form_fatigue_model (the only
+    one that doesn't require match_context.surface).
+    """
+    sackmann_dir = tmp_path / "sackmann"
+    sackmann_dir.mkdir()
+    _write_sackmann_csv_with_bastad(sackmann_dir / "atp_matches_2024.csv")
+    tennis_data_dir = tmp_path / "tennis_data"
+    tennis_data_dir.mkdir()
+
+    transport = _mock_odds_transport(
+        leagues_response=TENNIS_LEAGUES, events_response=[PENDING_EVENT], odds_response=ODDS_RESPONSE,
+    )
+    odds_client = OddsApiIoClient(api_key="test_key", transport=transport)
+
+    report = run_paper_trading_once(
+        session,
+        sackmann_dir=sackmann_dir, tennis_data_dir=tennis_data_dir,
+        resolver_store_path=tmp_path / "mappings.jsonl",
+        odds_client=odds_client,
+    )
+
+    assert len(report.matches_processed) == 1
+    outcome = report.matches_processed[0]
+    assert outcome.confidence_flag != "ABSTAINED"
+
+
+def test_paper_run_publishes_real_match_context_surface_when_resolvable(session: Session, tmp_path) -> None:
+    """The whole point of the MatchContextProvider: when Sackmann's
+    history shows a consistent surface for the tournament, CE.1 gets a
+    real MatchContext.surface — unblocking serve_model/return_model/
+    surface_model/matchup_model, which all require match_context.surface.
+    """
+    sackmann_dir = tmp_path / "sackmann"
+    sackmann_dir.mkdir()
+    _write_sackmann_csv_with_bastad(sackmann_dir / "atp_matches_2024.csv")
+
+    tennis_data_dir = tmp_path / "tennis_data"
+    tennis_data_dir.mkdir()
+
+    transport = _mock_odds_transport(
+        leagues_response=TENNIS_LEAGUES, events_response=[PENDING_EVENT], odds_response=ODDS_RESPONSE,
+    )
+    odds_client = OddsApiIoClient(api_key="test_key", transport=transport)
+
+    report = run_paper_trading_once(
+        session,
+        sackmann_dir=sackmann_dir, tennis_data_dir=tennis_data_dir,
+        resolver_store_path=tmp_path / "mappings.jsonl",
+        odds_client=odds_client,
+    )
+
+    assert len(report.matches_processed) == 1
+    snapshot = ce1_repository.get_latest_snapshot(session, "MatchContext", "72661910")
+    assert snapshot is not None
+    assert snapshot.fields["surface"]["value"] == "CLAY"
+
+
+def test_paper_run_no_match_context_when_tournament_unknown(session: Session, tmp_path) -> None:
+    """No fabrication: a tournament absent from Sackmann's history (or
+    inconsistent across years) must leave MatchContext unpublished, not
+    default to a guessed surface.
+    """
+    sackmann_dir = tmp_path / "sackmann"
+    sackmann_dir.mkdir()
+    _write_sackmann_csv(sackmann_dir / "atp_matches_2024.csv")  # no tourney_name at all
+
+    tennis_data_dir = tmp_path / "tennis_data"
+    tennis_data_dir.mkdir()
+
+    transport = _mock_odds_transport(
+        leagues_response=TENNIS_LEAGUES, events_response=[PENDING_EVENT], odds_response=ODDS_RESPONSE,
+    )
+    odds_client = OddsApiIoClient(api_key="test_key", transport=transport)
+
+    report = run_paper_trading_once(
+        session,
+        sackmann_dir=sackmann_dir, tennis_data_dir=tennis_data_dir,
+        resolver_store_path=tmp_path / "mappings.jsonl",
+        odds_client=odds_client,
+    )
+
+    assert len(report.matches_processed) == 1
+    snapshot = ce1_repository.get_latest_snapshot(session, "MatchContext", "72661910")
+    assert snapshot is None
 
 
 def test_paper_run_calls_odds_endpoint_exactly_once_per_event(session: Session, tmp_path) -> None:
@@ -246,6 +360,57 @@ def test_paper_run_only_pending_status_events_processed(session: Session, tmp_pa
     )
 
     assert report.events_checked == 0  # live/settled excluded, only "pending" counts
+
+
+def test_discover_filters_to_atp_wta_wta125_challenger_only() -> None:
+    """Real league names/slugs captured from odds-api.io live responses
+    (including the ITF/UTR ones observed the day the free-tier quota got
+    exhausted purely by discovery calls across a 157-league catalog).
+    """
+    leagues = [
+        {"name": "ATP - Bastad, Sweden", "slug": "atp-bastad-sweden", "eventsCount": 9},
+        {"name": "WTA - Athens, Greece", "slug": "wta-athens-greece", "eventsCount": 11},
+        {"name": "WTA 125K - Rome, Italy", "slug": "wta-125k-rome-italy", "eventsCount": 5},
+        {"name": "Challenger - Cordenons, Italy", "slug": "challenger-cordenons-italy", "eventsCount": 15},
+        {"name": "ITF Men - Rochester, R16", "slug": "tennis-itf-men-rochester-r16", "eventsCount": 8},
+        {"name": "UTR Men - UTR PTT Knoxville", "slug": "utr-men-utr-ptt-knoxville-men-02-group-a", "eventsCount": 4},
+        {"name": "Juniors - Roland Garros", "slug": "juniors-roland-garros", "eventsCount": 6},
+        {"name": "Exhibition - Laver Cup", "slug": "exhibition-laver-cup", "eventsCount": 3},
+        {"name": "Davis Cup - World Group", "slug": "davis-cup-world-group", "eventsCount": 2},
+        {"name": "Wheelchair - Australian Open", "slug": "wheelchair-australian-open", "eventsCount": 4},
+        {"name": "ATP - Bastad, Sweden, Doubles", "slug": "atp-bastad-sweden-doubles", "eventsCount": 3},
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v3/leagues":
+            return httpx.Response(200, json=leagues)
+        if request.url.path == "/v3/events":
+            return httpx.Response(200, json=[])
+        return httpx.Response(404, json={"error": "not found"})
+
+    client = OddsApiIoClient(api_key="test_key", transport=httpx.MockTransport(handler))
+    events = discover_upcoming_tennis_events(client)
+    # No events returned (each league has 0 pending events in this mock)
+    # but the point is which leagues get list_events called on them at
+    # all — verify indirectly via a call counter.
+    assert events == []
+
+    called_leagues: list[str] = []
+
+    def counting_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v3/leagues":
+            return httpx.Response(200, json=leagues)
+        if request.url.path == "/v3/events":
+            called_leagues.append(request.url.params["league"])
+            return httpx.Response(200, json=[])
+        return httpx.Response(404, json={"error": "not found"})
+
+    client2 = OddsApiIoClient(api_key="test_key", transport=httpx.MockTransport(counting_handler))
+    discover_upcoming_tennis_events(client2)
+
+    assert set(called_leagues) == {
+        "atp-bastad-sweden", "wta-athens-greece", "wta-125k-rome-italy", "challenger-cordenons-italy",
+    }
 
 
 def test_paper_run_unresolvable_player_name_skips_event_not_fabricated(session: Session, tmp_path) -> None:
