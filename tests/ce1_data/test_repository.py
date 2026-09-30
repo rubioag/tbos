@@ -36,6 +36,8 @@ def _sample_profile(ranking: int = 5) -> PlayerProfile:
         style_tags=env(["baseline", "two-handed-backhand"]),
         career_stage=env("PEAK"),
         h2h_records=env([]),
+        elo_rating=env(1500.0),
+        elo_rating_by_surface=env({"HARD": 1500.0}),
     )
 
 

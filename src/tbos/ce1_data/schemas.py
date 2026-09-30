@@ -24,6 +24,8 @@ class PlayerProfile(BaseModel):
     style_tags: FieldEnvelope[list[str]]
     career_stage: FieldEnvelope[str]
     h2h_records: FieldEnvelope[list[dict]]
+    elo_rating: FieldEnvelope[float]
+    elo_rating_by_surface: FieldEnvelope[dict[str, float]]
 
 
 class PlayerState(BaseModel):

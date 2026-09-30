@@ -84,6 +84,8 @@ def ingest_player_profile(
         style_tags=_field(raw.style_tags, m, freshness_threshold_seconds=fresh, now=now),
         career_stage=_field(raw.career_stage, m, freshness_threshold_seconds=fresh, now=now),
         h2h_records=_field(raw.h2h_records, m, freshness_threshold_seconds=fresh, now=now),
+        elo_rating=_field(raw.elo_rating, m, freshness_threshold_seconds=fresh, now=now),
+        elo_rating_by_surface=_field(raw.elo_rating_by_surface, m, freshness_threshold_seconds=fresh, now=now),
     )
     return ce1_repository.publish_snapshot(
         session, entity_type="PlayerProfile", entity_id=player_id, fields=fields, config_version_id=config_version_id,

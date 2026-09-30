@@ -38,6 +38,8 @@ def make_profile(
     break_conversion: dict[str, float] | None = None,
     first_serve: dict[str, float] | None = None,
     h2h_records: list[dict] | None = None,
+    elo_rating: FieldEnvelope | None = None,
+    elo_rating_by_surface: FieldEnvelope | None = None,
 ) -> PlayerProfile:
     return PlayerProfile(
         player_id=env(player_id),
@@ -51,6 +53,10 @@ def make_profile(
         style_tags=env(["baseline"]),
         career_stage=env("PEAK"),
         h2h_records=env(h2h_records if h2h_records is not None else []),
+        elo_rating=elo_rating if elo_rating is not None else env(1500.0),
+        elo_rating_by_surface=(
+            elo_rating_by_surface if elo_rating_by_surface is not None else env({"HARD": 1500.0})
+        ),
     )
 
 

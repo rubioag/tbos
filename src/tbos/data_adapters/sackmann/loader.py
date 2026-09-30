@@ -57,6 +57,7 @@ def parse_row(row: dict[str, str]) -> MatchRow | None:
 
     return MatchRow(
         tourney_date=tourney_date,
+        tourney_name=(row.get("tourney_name") or "").strip() or None,
         surface=(row.get("surface") or "").strip() or None,
         tourney_level=(row.get("tourney_level") or "").strip() or None,
         round=(row.get("round") or "").strip() or None,

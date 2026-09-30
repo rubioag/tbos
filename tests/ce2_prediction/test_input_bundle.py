@@ -48,6 +48,7 @@ def _profile() -> PlayerProfile:
         return_points_won_pct_by_surface=_env({"HARD": 0.38}),
         break_points_converted_pct_by_surface=_env({"HARD": 0.41}, stale=True),
         style_tags=_env(["baseline"]), career_stage=_env("PEAK"), h2h_records=_env([]),
+        elo_rating=_env(1500.0), elo_rating_by_surface=_env({"HARD": 1500.0}),
     )
 
 

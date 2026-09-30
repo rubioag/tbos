@@ -35,7 +35,7 @@ def _profile(player_id: str, now: datetime, *, h2h: list[dict] | None = None) ->
         service_points_won_pct_by_surface={"HARD": 0.65}, aces_per_match_by_surface={"HARD": 8.0},
         hold_rate_by_surface={"HARD": 0.8}, return_points_won_pct_by_surface={"HARD": 0.35},
         break_points_converted_pct_by_surface={"HARD": 0.38}, style_tags=["baseline"], career_stage="PEAK",
-        h2h_records=h2h or [], metadata=_metadata(now),
+        h2h_records=h2h or [], elo_rating=1500.0, elo_rating_by_surface={"HARD": 1500.0}, metadata=_metadata(now),
     )
 
 

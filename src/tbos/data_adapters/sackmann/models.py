@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 class MatchRow(BaseModel):
     tourney_date: date
+    tourney_name: str | None
     surface: str | None
     tourney_level: str | None
     round: str | None

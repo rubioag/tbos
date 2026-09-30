@@ -12,7 +12,7 @@ from tbos.data_adapters.sackmann.models import MatchRow
 
 def match1_p1_beats_p2_hard() -> MatchRow:
     return MatchRow(
-        tourney_date=date(2024, 1, 10), surface="Hard", tourney_level="A", round="F", best_of=3, score="6-4 6-3",
+        tourney_date=date(2024, 1, 10), tourney_name="Test Open", surface="Hard", tourney_level="A", round="F", best_of=3, score="6-4 6-3",
         winner_id="p1", winner_name="Player One", winner_hand="R", winner_age=24.5, winner_rank=10,
         loser_id="p2", loser_name="Player Two", loser_hand="L", loser_age=26.1, loser_rank=20,
         w_ace=8, w_df=2, w_svpt=80, w_1stIn=50, w_1stWon=40, w_2ndWon=20, w_SvGms=12, w_bpSaved=3, w_bpFaced=4,
@@ -22,7 +22,7 @@ def match1_p1_beats_p2_hard() -> MatchRow:
 
 def match2_p1_loses_to_p3_hard() -> MatchRow:
     return MatchRow(
-        tourney_date=date(2024, 2, 15), surface="Hard", tourney_level="A", round="QF", best_of=3, score="7-6(4) 3-6 6-2",
+        tourney_date=date(2024, 2, 15), tourney_name="Test Open", surface="Hard", tourney_level="A", round="QF", best_of=3, score="7-6(4) 3-6 6-2",
         winner_id="p3", winner_name="Player Three", winner_hand="R", winner_age=28.0, winner_rank=5,
         loser_id="p1", loser_name="Player One", loser_hand="R", loser_age=24.6, loser_rank=10,
         w_ace=6, w_df=1, w_svpt=70, w_1stIn=40, w_1stWon=32, w_2ndWon=18, w_SvGms=10, w_bpSaved=2, w_bpFaced=3,
@@ -32,7 +32,7 @@ def match2_p1_loses_to_p3_hard() -> MatchRow:
 
 def match3_p1_beats_p2_clay() -> MatchRow:
     return MatchRow(
-        tourney_date=date(2024, 3, 1), surface="Clay", tourney_level="A", round="R16", best_of=3, score="6-2 6-3",
+        tourney_date=date(2024, 3, 1), tourney_name="Test Clay Open", surface="Clay", tourney_level="A", round="R16", best_of=3, score="6-2 6-3",
         winner_id="p1", winner_name="Player One", winner_hand="R", winner_age=24.7, winner_rank=9,
         loser_id="p2", loser_name="Player Two", loser_hand="L", loser_age=26.2, loser_rank=21,
         w_ace=3, w_df=1, w_svpt=50, w_1stIn=30, w_1stWon=25, w_2ndWon=10, w_SvGms=8, w_bpSaved=2, w_bpFaced=2,
@@ -42,7 +42,7 @@ def match3_p1_beats_p2_clay() -> MatchRow:
 
 def match4_p1_loses_to_p4_retirement() -> MatchRow:
     return MatchRow(
-        tourney_date=date(2024, 4, 5), surface="Hard", tourney_level="A", round="R32", best_of=3, score="6-4 3-2 RET",
+        tourney_date=date(2024, 4, 5), tourney_name="Test Open", surface="Hard", tourney_level="A", round="R32", best_of=3, score="6-4 3-2 RET",
         winner_id="p4", winner_name="Player Four", winner_hand="R", winner_age=22.0, winner_rank=15,
         loser_id="p1", loser_name="Player One", loser_hand="R", loser_age=24.8, loser_rank=10,
         w_ace=4, w_df=1, w_svpt=45, w_1stIn=28, w_1stWon=22, w_2ndWon=10, w_SvGms=7, w_bpSaved=1, w_bpFaced=2,

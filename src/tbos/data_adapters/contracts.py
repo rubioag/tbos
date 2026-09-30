@@ -48,6 +48,8 @@ class RawPlayerStatsRecord(BaseModel):
     style_tags: list[str]
     career_stage: str
     h2h_records: list[dict]
+    elo_rating: float
+    elo_rating_by_surface: dict[str, float]
     metadata: SourceMetadata
 
 

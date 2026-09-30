@@ -29,6 +29,7 @@ from tbos.data_adapters.contracts import (
     StatsSourceAdapter,
 )
 from tbos.data_adapters.sackmann.aggregator import compute_serve_return_by_surface
+from tbos.data_adapters.sackmann.elo import EloRatings
 from tbos.data_adapters.sackmann.h2h import compute_h2h_records
 from tbos.data_adapters.sackmann.models import MatchRow
 from tbos.data_adapters.sackmann.player_state import (
@@ -65,8 +66,12 @@ def _career_stage_from_age(age: float | None) -> str:
 class SackmannStatsAdapter(StatsSourceAdapter):
     source_id = "sackmann_local_dataset"
 
-    def __init__(self, matches: list[MatchRow], *, source_trust_score: float = 0.85) -> None:
+    def __init__(
+        self, matches: list[MatchRow], *,
+        elo_ratings: EloRatings | None = None, source_trust_score: float = 0.85,
+    ) -> None:
         self._matches = matches
+        self._elo_ratings = elo_ratings if elo_ratings is not None else EloRatings.from_matches(matches)
         self._source_trust_score = source_trust_score
 
     def _metadata(self, as_of: datetime) -> SourceMetadata:
@@ -116,6 +121,8 @@ class SackmannStatsAdapter(StatsSourceAdapter):
             style_tags=style_tags,
             career_stage=_career_stage_from_age(age),
             h2h_records=compute_h2h_records(self._matches, player_id, as_of=as_of_date),
+            elo_rating=self._elo_ratings.get_overall(player_id),
+            elo_rating_by_surface=self._elo_ratings.get_by_surface(player_id),
             metadata=self._metadata(as_of),
         )
 
