@@ -82,7 +82,7 @@ class PlayerNameResolver:
             )
             return player_id
 
-        reversed_candidate = self._try_reversed_order(normalized)
+        reversed_candidate = self._try_reversed_order(source_name, normalized)
         if reversed_candidate is not None:
             player_id = reversed_candidate
             self._record(
@@ -115,7 +115,28 @@ class PlayerNameResolver:
             f"threshold {self._fuzzy_threshold}) — abstaining, never guessing"
         )
 
-    def _try_reversed_order(self, normalized: str) -> str | None:
+    def _try_reversed_order(self, source_name: str, normalized: str) -> str | None:
+        """Two strategies, tried in order:
+
+        1. Comma-aware split (odds-api.io's "Surname, Firstname"). The
+           comma marks the true surname/given-name boundary regardless of
+           how many tokens are on either side, so multi-token surnames
+           ("De Jong, Jesper" -> "jesper de jong") resolve correctly —
+           unlike a blind full-token reversal, which only happens to work
+           when both surname and given name are exactly one token.
+        2. Blind full-token reversal ("Djokovic Novak" -> "novak
+           djokovic"), for inputs with no comma to anchor the split.
+        """
+        if "," in source_name:
+            surname_part, _, given_part = source_name.partition(",")
+            surname_normalized = normalize_player_name(surname_part)
+            given_normalized = normalize_player_name(given_part)
+            if surname_normalized and given_normalized:
+                candidate = f"{given_normalized} {surname_normalized}"
+                candidates = self._index.get(candidate)
+                if candidates is not None and len(candidates) == 1:
+                    return next(iter(candidates))
+
         tokens = normalized.split(" ")
         if len(tokens) < 2:
             return None

@@ -76,6 +76,20 @@ def test_odds_api_io_surname_comma_firstname_format_resolves(tmp_path) -> None:
     assert record.method == "reversed_order"
 
 
+def test_multi_token_surname_comma_format_resolves_via_reversed_order(tmp_path) -> None:
+    """Real bug: odds-api.io's "De Jong, Jesper" has a two-token surname.
+    Blind full-token reversal produces "jesper jong de", which never
+    matches Sackmann's "jesper de jong". The comma must anchor the
+    surname/given-name split instead.
+    """
+    resolver, store = _resolver(tmp_path)
+    player_id = resolver.resolve("De Jong, Jesper", now=NOW)
+    assert player_id == "207411"
+    record = store.get("the_odds_api", "De Jong, Jesper")
+    assert record.method == "reversed_order"
+    assert record.confidence == 0.95
+
+
 def test_minor_typo_resolves_via_fuzzy_tier_with_recorded_confidence(tmp_path) -> None:
     resolver, store = _resolver(tmp_path)
     player_id = resolver.resolve("Novak Djokovc", now=NOW)  # missing 'i'

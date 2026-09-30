@@ -14,7 +14,7 @@ from tbos.data_adapters.sackmann.models import MatchRow
 
 def _match(winner_id: str, winner_name: str, loser_id: str, loser_name: str) -> MatchRow:
     return MatchRow(
-        tourney_date=date(2024, 1, 1), surface="Hard", tourney_level="A", round="F",
+        tourney_date=date(2024, 1, 1), tourney_name="Test Event", surface="Hard", tourney_level="A", round="F",
         best_of=3, score="6-4 6-3",
         winner_id=winner_id, winner_name=winner_name, winner_hand=None,
         winner_age=None, winner_rank=None,
@@ -34,6 +34,7 @@ def real_player_matches() -> list[MatchRow]:
         _match("216347", "Iga Swiatek", "221103", "Coco Gauff"),
         _match("200000", "Felix Auger Aliassime", "122298", "Botic Van De Zandschulp"),
         _match("126207", "Frances Tiafoe", "999999", "Filler Opponent"),
+        _match("207411", "Jesper De Jong", "202104", "Sebastian Baez"),
     ]
 
 
